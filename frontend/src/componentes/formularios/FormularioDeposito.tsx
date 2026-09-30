@@ -38,13 +38,15 @@ export function FormularioDeposito({ deposito = null, onGuardado, onCancelar }: 
       if (latitud == null || longitud == null) {
         throw new ErrorFormulario("Marcá en el mapa dónde arrancás y terminás tu día.");
       }
-      const datos = {
-        nombre,
-        latitud,
-        longitud,
-        ventana_inicio: horaApertura ? hhMmAMinutos(horaApertura) : null,
-        ventana_fin: horaCierre ? hhMmAMinutos(horaCierre) : null,
-      };
+      const apertura = horaApertura ? hhMmAMinutos(horaApertura) : null;
+      const cierre = horaCierre ? hhMmAMinutos(horaCierre) : null;
+      if ((apertura == null) !== (cierre == null)) {
+        throw new ErrorFormulario("Completá el horario del depósito: abre y cierra.");
+      }
+      if (apertura != null && cierre != null && cierre <= apertura) {
+        throw new ErrorFormulario("El depósito tiene que cerrar después de abrir.");
+      }
+      const datos = { nombre, latitud, longitud, ventana_inicio: apertura, ventana_fin: cierre };
       const guardado = deposito
         ? await actualizarDeposito(deposito.id, datos)
         : await crearDeposito(datos);

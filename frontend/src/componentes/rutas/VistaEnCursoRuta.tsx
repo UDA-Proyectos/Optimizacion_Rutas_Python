@@ -1,12 +1,15 @@
 import { useState } from "react";
 
-import { completarParada } from "../../api/rutas";
+import { completarParada, fallarParada, registrarLlegada, saltearParada } from "../../api/rutas";
 import type { EjecutarAccionRuta } from "../../hooks/useRutaActiva";
+import type { EstadoGps } from "../../hooks/useUbicacion";
 import type { UsuarioPublico } from "../../tipos/auth";
 import type { ClientePublico } from "../../tipos/cliente";
-import type { ParadaRutaPublica, RutaPublica } from "../../tipos/ruta";
+import type { MotivoFalloParada, ParadaRutaPublica, RutaPublica } from "../../tipos/ruta";
 import { minutosAHhMm } from "../../utilidades/horario";
+import { ETIQUETA_MOTIVO, OPCIONES_MOTIVO_FALLO } from "../../utilidades/motivosFallo";
 import { combinarClases } from "../ui/combinarClases";
+import { BannerError } from "../ui/Formulario";
 import { MapaRutaActiva } from "./MapaRutaActiva";
 
 interface KpiProps {
@@ -38,6 +41,40 @@ function TarjetaKpi({ label, value, unit, delta, deltaColor = "#667085" }: KpiPr
   );
 }
 
+const ETIQUETA_UBICACION: Record<EstadoGps["estado"], string> = {
+  inactiva: "Usar mi ubicación",
+  buscando: "Buscando…",
+  activa: "Ubicación activa",
+  denegada: "Ubicación bloqueada",
+  no_disponible: "Sin GPS",
+};
+
+/** Activa/apaga la posición del dispositivo. El permiso del navegador se pide
+ * recién al tocarlo; la posición nunca sale del dispositivo. */
+function BotonUbicacion({ gps }: { gps: EstadoGps }) {
+  const activa = gps.estado === "activa" || gps.estado === "buscando";
+  return (
+    <button
+      type="button"
+      disabled={gps.estado === "denegada" || gps.estado === "no_disponible"}
+      onClick={activa ? gps.desactivar : gps.activar}
+      title={
+        gps.estado === "denegada"
+          ? "Habilitá la ubicación para este sitio desde los permisos del navegador"
+          : undefined
+      }
+      className={combinarClases(
+        "h-9 flex-1 rounded-lg border px-2 text-[12px] font-semibold disabled:opacity-50",
+        gps.estado === "activa"
+          ? "border-[#2E5CFF] bg-[#2E5CFF]/10 text-[#2E5CFF]"
+          : "border-borde-input bg-blanco text-texto-cuerpo",
+      )}
+    >
+      {ETIQUETA_UBICACION[gps.estado]}
+    </button>
+  );
+}
+
 /** Overlay del mapa mientras hay una parada en curso: tarjeta con los datos
  * de esa parada arriba, y la barra de acciones (confirmar llegada, llamar
  * al cliente) abajo — separado de VistaEnCursoRuta para que esa función no
@@ -48,8 +85,12 @@ function OverlayParadaActual({
   totalParadas,
   usaVentanasHorarias,
   enviando,
-  arribado,
+  sinConexion,
+  gps,
   onLlegue,
+  onFallar,
+  onSaltear,
+  puedeSaltear,
   clienteActual,
 }: {
   paradaActual: ParadaRutaPublica;
@@ -57,10 +98,21 @@ function OverlayParadaActual({
   totalParadas: number;
   usaVentanasHorarias: boolean;
   enviando: boolean;
-  arribado: boolean;
+  /** Sin conexión las acciones que escriben se bloquean (no se encolan). */
+  sinConexion: boolean;
+  gps: EstadoGps;
   onLlegue: () => void;
+  onFallar: (motivo: MotivoFalloParada) => void;
+  onSaltear: () => void;
+  puedeSaltear: boolean;
   clienteActual: ClientePublico | undefined;
 }) {
+  // Estado puramente visual (el selector abierto/cerrado). Se reinicia solo al
+  // cambiar de parada porque el padre monta este componente con `key`.
+  const [eligiendoMotivo, setEligiendoMotivo] = useState(false);
+  const arribado = paradaActual.hora_real_llegada != null;
+  const bloqueado = enviando || sinConexion;
+
   return (
     <>
       <div className="absolute top-3 right-3 left-3 z-[500] rounded-xl border border-borde bg-white/95 px-3.5 py-3 shadow-md backdrop-blur-[10px]">
@@ -120,12 +172,59 @@ function OverlayParadaActual({
             </span>
           )}
         </div>
+
+        <div className="mt-2.5 flex gap-2 border-t border-borde pt-2.5">
+          <button
+            type="button"
+            disabled={bloqueado}
+            onClick={() => setEligiendoMotivo((abierto) => !abierto)}
+            className="h-9 flex-1 rounded-lg border border-peligro-borde bg-peligro-tint px-2 text-[12px] font-semibold text-peligro disabled:opacity-60"
+          >
+            No pude entregar
+          </button>
+          <button
+            type="button"
+            disabled={bloqueado || !puedeSaltear}
+            onClick={onSaltear}
+            title={puedeSaltear ? undefined : "Es la única parada que queda"}
+            className="h-9 flex-1 rounded-lg border border-borde-input bg-blanco px-2 text-[12px] font-semibold text-texto-cuerpo disabled:opacity-50"
+          >
+            Saltear
+          </button>
+          <BotonUbicacion gps={gps} />
+        </div>
+        {sinConexion && (
+          <p className="mt-2 text-[11px] text-peligro">
+            Sin conexión: solo podés mirar la ruta. Las acciones se habilitan al volver la señal.
+          </p>
+        )}
+
+        {eligiendoMotivo && (
+          <div className="mt-2.5">
+            <div className="mb-1.5 text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase">
+              ¿Por qué no pudiste entregar?
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {OPCIONES_MOTIVO_FALLO.map((motivo) => (
+                <button
+                  key={motivo}
+                  type="button"
+                  disabled={bloqueado}
+                  onClick={() => onFallar(motivo)}
+                  className="h-8 rounded-lg border border-borde-input bg-blanco px-2.5 text-[11.5px] font-semibold text-texto-cuerpo disabled:opacity-60"
+                >
+                  {ETIQUETA_MOTIVO[motivo]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="absolute right-3.5 bottom-3 left-3.5 z-[500] flex gap-2 sm:gap-2.5">
         <button
           type="button"
-          disabled={enviando}
+          disabled={bloqueado}
           onClick={onLlegue}
           className="h-[52px] flex-1 rounded-xl bg-exito px-2 text-[12px] font-bold text-blanco shadow-[0_4px_12px_rgba(18,183,106,0.32)] disabled:opacity-60 sm:text-[13.5px]"
         >
@@ -161,12 +260,18 @@ function OverlayParadaActual({
 export function VistaEnCursoRuta({
   ruta,
   enviando,
+  sinConexion,
+  gps,
+  error,
   ejecutar,
   usuario,
   clientePorId,
 }: {
   ruta: RutaPublica;
   enviando: boolean;
+  sinConexion: boolean;
+  gps: EstadoGps;
+  error: string | null;
   ejecutar: EjecutarAccionRuta;
   usuario: UsuarioPublico;
   clientePorId: Map<string, ClientePublico>;
@@ -174,19 +279,9 @@ export function VistaEnCursoRuta({
   const paradas = ruta.paradas;
   const completadas = paradas.filter((p) => p.estado === "completada");
   const doneCount = completadas.length;
+  const fallidasCount = paradas.filter((p) => p.estado === "fallida").length;
   const indiceActual = paradas.findIndex((p) => p.estado === "en_curso");
   const paradaActual = indiceActual === -1 ? undefined : paradas[indiceActual];
-
-  // "Ajustar estado durante el render" en vez de un efecto: en cuanto cambia
-  // la parada actual (avanzó a la siguiente), el toque de "llegué" pendiente
-  // de esta pantalla ya no aplica — sin esto, confirmar una parada dejaría
-  // la próxima con el botón mostrando "Confirmar entrega y seguir" de arranque.
-  const [arribado, setArribado] = useState(false);
-  const [paradaIdPrevia, setParadaIdPrevia] = useState(paradaActual?.id);
-  if (paradaActual?.id !== paradaIdPrevia) {
-    setParadaIdPrevia(paradaActual?.id);
-    setArribado(false);
-  }
 
   // Solo un chofer independiente con vehículo llega hasta acá (necesita uno
   // para poder confirmar cualquier ruta, ver requiere_chofer_independiente).
@@ -209,7 +304,9 @@ export function VistaEnCursoRuta({
       label: "Entregas de hoy",
       value: String(doneCount),
       unit: `de ${paradas.length}`,
-      delta: `${Math.round((doneCount / paradas.length) * 100)}% completado`,
+      delta: `${Math.round((doneCount / paradas.length) * 100)}% completado${
+        fallidasCount > 0 ? ` · ${fallidasCount} sin entregar` : ""
+      }`,
       deltaColor: "#079455",
     },
     {
@@ -240,22 +337,40 @@ export function VistaEnCursoRuta({
         },
   ];
 
-  const pendientesCount = paradas.length - doneCount;
+  const pendientesCount = paradas.filter(
+    (p) => p.estado === "pendiente" || p.estado === "en_curso",
+  ).length;
 
+  // El "llegué" vive en el servidor (hora_real_llegada): recargar la página no
+  // lo pierde. El primer toque registra la llegada, el segundo completa.
   async function manejarLlegue() {
-    if (!arribado) {
-      setArribado(true);
+    if (!paradaActual) return;
+    if (paradaActual.hora_real_llegada == null) {
+      await ejecutar(() => registrarLlegada(paradaActual.id), "No se pudo registrar la llegada.");
       return;
     }
-    if (!paradaActual) return;
     await ejecutar(() => completarParada(paradaActual.id), "No se pudo marcar la parada.");
   }
+
+  async function manejarFallar(motivo: MotivoFalloParada) {
+    if (!paradaActual) return;
+    await ejecutar(() => fallarParada(paradaActual.id, motivo), "No se pudo registrar el problema.");
+  }
+
+  async function manejarSaltear() {
+    if (!paradaActual) return;
+    await ejecutar(() => saltearParada(paradaActual.id), "No se pudo saltear la parada.");
+  }
+
+  const puedeSaltear = paradas.some((p) => p.estado === "pendiente");
 
   const clienteActual = paradaActual ? clientePorId.get(paradaActual.cliente_id) : undefined;
 
   return (
     <div className="flex min-h-0 flex-col overflow-y-auto lg:h-full lg:flex-row lg:overflow-hidden">
       <div className="flex min-w-0 flex-col gap-2.5 p-4 sm:p-5 lg:flex-1 lg:overflow-y-auto">
+        {error && <BannerError>{error}</BannerError>}
+
         <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4">
           {kpis.map((kpi) => (
             <TarjetaKpi key={kpi.label} {...kpi} />
@@ -263,16 +378,26 @@ export function VistaEnCursoRuta({
         </div>
 
         <div className="h-[420px] shrink-0 sm:h-[480px] lg:min-h-[420px] lg:flex-1">
-          <MapaRutaActiva deposito={ruta.deposito} paradas={ruta.paradas} overlaySimple={false}>
+          <MapaRutaActiva
+            deposito={ruta.deposito}
+            paradas={ruta.paradas}
+            overlaySimple={false}
+            ubicacion={gps.ubicacion}
+          >
             {paradaActual && (
               <OverlayParadaActual
+                key={paradaActual.id}
                 paradaActual={paradaActual}
                 indiceActual={indiceActual}
                 totalParadas={paradas.length}
                 usaVentanasHorarias={ruta.usa_ventanas_horarias}
                 enviando={enviando}
-                arribado={arribado}
+                sinConexion={sinConexion}
+                gps={gps}
                 onLlegue={manejarLlegue}
+                onFallar={manejarFallar}
+                onSaltear={manejarSaltear}
+                puedeSaltear={puedeSaltear}
                 clienteActual={clienteActual}
               />
             )}
@@ -373,6 +498,8 @@ function FilaTimeline({
   const estilo =
     parada.estado === "completada"
       ? { nodo: "bg-exito border-exito text-blanco", linea: "bg-[#D3F2E0]", badge: "bg-exito-tint text-[#079455]" }
+      : parada.estado === "fallida"
+        ? { nodo: "bg-peligro border-peligro text-blanco", linea: "bg-borde", badge: "bg-peligro-tint text-peligro" }
       : enRiesgo
         ? { nodo: "bg-peligro border-peligro text-blanco", linea: "bg-borde", badge: "bg-peligro-tint text-peligro" }
         : parada.estado === "en_curso"
@@ -382,6 +509,8 @@ function FilaTimeline({
   const badgeLabel =
     parada.estado === "completada"
       ? "Entregada"
+      : parada.estado === "fallida"
+        ? `No entregada${parada.motivo_fallo ? ` · ${ETIQUETA_MOTIVO[parada.motivo_fallo]}` : ""}`
       : parada.estado === "en_curso"
         ? usaVentanas && parada.hora_estimada_llegada != null
           ? `${enRiesgo ? "Riesgo · " : "Llega "}${minutosAHhMm(parada.hora_estimada_llegada)}`
@@ -399,7 +528,7 @@ function FilaTimeline({
             estilo.nodo,
           )}
         >
-          {parada.estado === "completada" ? "✓" : indice + 1}
+          {parada.estado === "completada" ? "✓" : parada.estado === "fallida" ? "✕" : indice + 1}
         </div>
         {!esUltima && <div className={combinarClases("min-h-3.5 w-0.5 flex-1", estilo.linea)} />}
       </div>

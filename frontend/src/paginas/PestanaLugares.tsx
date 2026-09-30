@@ -13,6 +13,7 @@ import { TarjetaLugar } from "../componentes/ui/TarjetaLugar";
 import { TextoVacio } from "../componentes/ui/TextoVacio";
 import type { ClientePublico } from "../tipos/cliente";
 import type { DepositoPublico } from "../tipos/deposito";
+import { resumenHabituales } from "../utilidades/habituales";
 
 type Vista = "lista" | "formulario" | "ruta" | "deposito";
 
@@ -205,6 +206,7 @@ export function PestanaLugares({
               nombre={cliente.nombre}
               direccion={cliente.direccion}
               telefono={cliente.telefono}
+              detalle={resumenHabituales(cliente)}
               trailing={
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
                   <Enlace onClick={() => abrirEdicionLugar(cliente)}>Editar</Enlace>

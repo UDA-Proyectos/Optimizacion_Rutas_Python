@@ -4,7 +4,9 @@ import { obtenerHistorialRutas, obtenerRutaHistorial } from "../../api/rutas";
 import type { ClientePublico } from "../../tipos/cliente";
 import type { RutaHistorialItem, RutaPublica } from "../../tipos/ruta";
 import { minutosAHhMm } from "../../utilidades/horario";
+import { ETIQUETA_MOTIVO } from "../../utilidades/motivosFallo";
 import type { Seleccion } from "../rutas/FlujoArmarRuta";
+import { ResumenCierre } from "../rutas/ResumenCierre";
 import { Boton } from "../ui/Boton";
 import { BannerError } from "../ui/Formulario";
 import { TextoVacio } from "../ui/TextoVacio";
@@ -136,6 +138,10 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
                 )}
               </div>
 
+              {detalle.resumen && (
+                <ResumenCierre resumen={detalle.resumen} totalParadas={detalle.paradas.length} />
+              )}
+
               <ol className="flex flex-col gap-2">
                 {detalle.paradas.map((parada) => (
                   <li
@@ -149,6 +155,12 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
                       <p className="truncate text-[11px] text-texto-mutado">
                         {parada.direccion_snapshot}
                       </p>
+                      {parada.estado === "fallida" && (
+                        <p className="mt-0.5 text-[11px] font-semibold text-peligro">
+                          No entregada
+                          {parada.motivo_fallo && ` · ${ETIQUETA_MOTIVO[parada.motivo_fallo]}`}
+                        </p>
+                      )}
                     </div>
                     <span className="shrink-0 font-mono text-[11px] text-texto-mutado">
                       {parada.demanda_carga_snapshot} kg

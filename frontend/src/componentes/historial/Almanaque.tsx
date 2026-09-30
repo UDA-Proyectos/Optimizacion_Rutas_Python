@@ -24,6 +24,10 @@ const COLOR_PUNTO: Record<RutaHistorialItem["estado"], string> = {
   en_curso: "bg-primario",
 };
 
+function conFallos(ruta: RutaHistorialItem): boolean {
+  return ruta.estado === "completada" && ruta.paradas_fallidas > 0;
+}
+
 interface Props {
   anio: number;
   mes: number; // 1-12
@@ -130,11 +134,35 @@ export function Almanaque({ anio, mes, rutas, diaSeleccionado, onSeleccionarDia,
               <span>{dia}</span>
               {ruta && (
                 <span
-                  className={combinarClases(
-                    "h-1.5 w-1.5 rounded-full",
-                    seleccionado ? "bg-blanco" : COLOR_PUNTO[ruta.estado],
+                  className="flex items-center gap-0.5"
+                  title={
+                    ruta.estado === "cancelada"
+                      ? "Ruta cancelada"
+                      : `${ruta.paradas_completadas} de ${ruta.paradas_total} entregas` +
+                        (ruta.paradas_fallidas > 0 ? ` · ${ruta.paradas_fallidas} sin entregar` : "")
+                  }
+                >
+                  <span
+                    className={combinarClases(
+                      "h-1.5 w-1.5 rounded-full",
+                      seleccionado
+                        ? "bg-blanco"
+                        : conFallos(ruta)
+                          ? "bg-peligro"
+                          : COLOR_PUNTO[ruta.estado],
+                    )}
+                  />
+                  {ruta.estado !== "cancelada" && (
+                    <span
+                      className={combinarClases(
+                        "font-mono text-[8.5px] leading-none",
+                        seleccionado ? "text-blanco" : "text-texto-mutado",
+                      )}
+                    >
+                      {ruta.paradas_completadas}/{ruta.paradas_total}
+                    </span>
                   )}
-                />
+                </span>
               )}
             </button>
           );
@@ -144,6 +172,9 @@ export function Almanaque({ anio, mes, rutas, diaSeleccionado, onSeleccionarDia,
       <div className="mt-4 flex flex-wrap gap-3 border-t border-borde pt-3 text-[10.5px] text-texto-mutado">
         <span className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-exito" /> Completada
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-peligro" /> Con paradas sin entregar
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-texto-tenue" /> Cancelada

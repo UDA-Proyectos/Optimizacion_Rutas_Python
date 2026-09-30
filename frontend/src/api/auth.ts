@@ -1,10 +1,13 @@
 import { fetchApi } from "./cliente";
 import type {
   CodigoInvitacionPublico,
+  DatosCambiarContrasena,
   DatosLogin,
+  DatosPerfilActualizar,
   DatosRegistroChoferIndependiente,
   DatosRegistroChoferInvitado,
   DatosRegistroEmpresa,
+  DatosVehiculoActualizar,
   RegistroEmpresaResponse,
   UsuarioPublico,
 } from "../tipos/auth";
@@ -45,6 +48,24 @@ export function cerrarSesion() {
 
 export function obtenerUsuarioActual() {
   return fetchApi<UsuarioPublico>(`${BASE}/me`);
+}
+
+export function actualizarPerfil(datos: DatosPerfilActualizar) {
+  return fetchApi<UsuarioPublico>(`${BASE}/me`, { method: "PATCH", body: JSON.stringify(datos) });
+}
+
+export function actualizarVehiculo(datos: DatosVehiculoActualizar) {
+  return fetchApi<UsuarioPublico>(`${BASE}/me/vehiculo`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function cambiarContrasena(datos: DatosCambiarContrasena) {
+  return fetchApi<{ mensaje: string }>(`${BASE}/cambiar-contrasena`, {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
 }
 
 export function generarCodigoInvitacion() {

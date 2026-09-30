@@ -69,6 +69,25 @@ export type DatosRegistroChoferInvitado = DatosPersonaBase &
     codigo_invitacion: string;
   };
 
+/** Espeja api/schemas_auth.py (PerfilActualizar, VehiculoActualizar,
+ * CambiarContrasena) — si cambia uno, actualizar el otro a mano. */
+export interface DatosPerfilActualizar {
+  nombre_completo?: string;
+  telefono?: string;
+}
+
+export interface DatosVehiculoActualizar {
+  tipo_vehiculo?: TipoVehiculo;
+  patente?: string;
+  capacidad_carga_kg?: number;
+}
+
+export interface DatosCambiarContrasena {
+  contrasena_actual: string;
+  contrasena_nueva: string;
+  confirmar_contrasena_nueva: string;
+}
+
 export interface DatosLogin {
   email: string;
   contrasena: string;

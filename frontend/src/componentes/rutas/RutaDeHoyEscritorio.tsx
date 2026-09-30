@@ -1,5 +1,6 @@
 import { eliminarRuta, iniciarRuta } from "../../api/rutas";
 import type { EjecutarAccionRuta } from "../../hooks/useRutaActiva";
+import type { EstadoGps } from "../../hooks/useUbicacion";
 import type { UsuarioPublico } from "../../tipos/auth";
 import type { ClientePublico } from "../../tipos/cliente";
 import type { RutaPublica } from "../../tipos/ruta";
@@ -7,17 +8,21 @@ import { Boton } from "../ui/Boton";
 import { BannerError } from "../ui/Formulario";
 import { CabeceraTarjeta, TituloTarjeta } from "../ui/TarjetaContenido";
 import { TextoVacio } from "../ui/TextoVacio";
+import { ResumenCierre } from "./ResumenCierre";
 import { VistaEnCursoRuta } from "./VistaEnCursoRuta";
 
 interface Props {
   ruta: RutaPublica | null;
   cargando: boolean;
   enviando: boolean;
+  sinConexion: boolean;
+  gps: EstadoGps;
   error: string | null;
   ejecutar: EjecutarAccionRuta;
   usuario: UsuarioPublico;
   clientePorId: Map<string, ClientePublico>;
   onIrAArmarRuta: () => void;
+  onIrAHistorial: () => void;
   onEditar: () => void;
 }
 
@@ -35,11 +40,14 @@ export function RutaDeHoyEscritorio({
   ruta,
   cargando,
   enviando,
+  sinConexion,
+  gps,
   error,
   ejecutar,
   usuario,
   clientePorId,
   onIrAArmarRuta,
+  onIrAHistorial,
   onEditar,
 }: Props) {
   if (cargando) {
@@ -73,11 +81,31 @@ export function RutaDeHoyEscritorio({
     );
   }
 
+  if (ruta.estado === "completada" && ruta.resumen) {
+    return (
+      <TarjetaCentrada>
+        <CabeceraTarjeta>
+          <TituloTarjeta>¡Ruta completada!</TituloTarjeta>
+        </CabeceraTarjeta>
+        <div className="mb-4">
+          <ResumenCierre resumen={ruta.resumen} totalParadas={ruta.paradas.length} />
+        </div>
+        <div className="flex gap-2.5 [&>*]:flex-1">
+          <Boton variante="secundario" onClick={onIrAHistorial}>
+            Ver historial
+          </Boton>
+          <Boton onClick={onIrAArmarRuta}>Armar otra ruta</Boton>
+        </div>
+      </TarjetaCentrada>
+    );
+  }
+
   if (ruta.estado !== "en_curso") {
     return (
       <ResumenRuta
         ruta={ruta}
         enviando={enviando}
+        sinConexion={sinConexion}
         error={error}
         ejecutar={ejecutar}
         onEditar={onEditar}
@@ -89,6 +117,9 @@ export function RutaDeHoyEscritorio({
     <VistaEnCursoRuta
       ruta={ruta}
       enviando={enviando}
+      sinConexion={sinConexion}
+      gps={gps}
+      error={error}
       ejecutar={ejecutar}
       usuario={usuario}
       clientePorId={clientePorId}
@@ -99,12 +130,14 @@ export function RutaDeHoyEscritorio({
 function ResumenRuta({
   ruta,
   enviando,
+  sinConexion,
   error,
   ejecutar,
   onEditar,
 }: {
   ruta: RutaPublica;
   enviando: boolean;
+  sinConexion: boolean;
   error: string | null;
   ejecutar: Props["ejecutar"];
   onEditar: () => void;
@@ -137,17 +170,24 @@ function ResumenRuta({
           <Boton
             variante="exito"
             cargando={enviando}
+            disabled={sinConexion}
             onClick={() => ejecutar(() => iniciarRuta(), "No se pudo iniciar la ruta.")}
           >
             Iniciar ruta
           </Boton>
+          {sinConexion && (
+            <p className="text-center text-[11.5px] text-peligro">
+              Sin conexión: la ruta se puede iniciar o cambiar cuando vuelva la señal.
+            </p>
+          )}
           <div className="flex gap-2.5 [&>*]:flex-1">
-            <Boton variante="secundario" onClick={onEditar}>
+            <Boton variante="secundario" disabled={sinConexion} onClick={onEditar}>
               Editar
             </Boton>
             <Boton
               variante="peligro"
               cargando={enviando}
+              disabled={sinConexion}
               onClick={() =>
                 ejecutar(() => eliminarRuta().then(() => undefined), "No se pudo eliminar la ruta.")
               }

@@ -1,6 +1,10 @@
+import { useState } from "react";
+
 import type { UsuarioPublico } from "../../tipos/auth";
 import { OPCIONES_TIPO_VEHICULO } from "../formularios/opcionesVehiculo";
 import { Boton } from "../ui/Boton";
+import { FormularioCambiarContrasena } from "./FormularioCambiarContrasena";
+import { FormularioPerfil } from "./FormularioPerfil";
 
 interface Props {
   usuario: UsuarioPublico;
@@ -22,9 +26,40 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
  * es una sección más del menú lateral, no un panel flotante aparte —
  * mismo criterio de navegación que el resto de las secciones. */
 export function PanelCuenta({ usuario, onCerrarSesion }: Props) {
+  const [modo, setModo] = useState<"ver" | "perfil" | "contrasena">("ver");
+  const [aviso, setAviso] = useState<string | null>(null);
   const etiquetaVehiculo = usuario.vehiculo
     ? OPCIONES_TIPO_VEHICULO.find((op) => op.valor === usuario.vehiculo?.tipo_vehiculo)?.etiqueta
     : null;
+
+  function terminarEdicion(mensaje: string) {
+    setModo("ver");
+    setAviso(mensaje);
+  }
+
+  if (modo !== "ver") {
+    return (
+      <div className="mx-auto max-w-[480px] p-4 sm:p-6">
+        <div className="rounded-2xl border border-borde bg-blanco px-6 py-7 shadow-md">
+          <p className="mb-4 text-[15px] font-bold text-texto-fuerte">
+            {modo === "perfil" ? "Editar mis datos" : "Cambiar contraseña"}
+          </p>
+          {modo === "perfil" ? (
+            <FormularioPerfil
+              usuario={usuario}
+              onGuardado={() => terminarEdicion("Datos actualizados.")}
+              onCancelar={() => setModo("ver")}
+            />
+          ) : (
+            <FormularioCambiarContrasena
+              onGuardado={() => terminarEdicion("Contraseña actualizada.")}
+              onCancelar={() => setModo("ver")}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex max-w-[480px] flex-col gap-4 p-4 sm:p-6">
@@ -60,6 +95,33 @@ export function PanelCuenta({ usuario, onCerrarSesion }: Props) {
           </div>
         </div>
       )}
+
+      {aviso && (
+        <p className="rounded-md border border-[#ABEFC6] bg-exito-tint px-3 py-2.5 text-[12.5px] text-[#067647]">
+          {aviso}
+        </p>
+      )}
+
+      <div className="flex gap-2.5 [&>*]:flex-1">
+        <Boton
+          variante="secundario"
+          onClick={() => {
+            setAviso(null);
+            setModo("perfil");
+          }}
+        >
+          Editar mis datos
+        </Boton>
+        <Boton
+          variante="secundario"
+          onClick={() => {
+            setAviso(null);
+            setModo("contrasena");
+          }}
+        >
+          Cambiar contraseña
+        </Boton>
+      </div>
 
       <Boton variante="peligro" onClick={onCerrarSesion}>
         Cerrar sesión

@@ -1,6 +1,7 @@
 import { fetchApi } from "./cliente";
 import type {
   GeometriaRuta,
+  MotivoFalloParada,
   OptimizarRutaRequest,
   RutaHistorialItem,
   RutaPreview,
@@ -38,8 +39,27 @@ export function iniciarRuta() {
   return fetchApi<RutaPublica>(`${BASE}/activa/iniciar`, { method: "POST" });
 }
 
+export function registrarLlegada(paradaId: string) {
+  return fetchApi<RutaPublica>(`${BASE}/activa/paradas/${paradaId}/llegada`, {
+    method: "POST",
+  });
+}
+
 export function completarParada(paradaId: string) {
   return fetchApi<RutaPublica>(`${BASE}/activa/paradas/${paradaId}/completar`, {
+    method: "POST",
+  });
+}
+
+export function fallarParada(paradaId: string, motivo: MotivoFalloParada) {
+  return fetchApi<RutaPublica>(`${BASE}/activa/paradas/${paradaId}/fallar`, {
+    method: "POST",
+    body: JSON.stringify({ motivo }),
+  });
+}
+
+export function saltearParada(paradaId: string) {
+  return fetchApi<RutaPublica>(`${BASE}/activa/paradas/${paradaId}/saltear`, {
     method: "POST",
   });
 }

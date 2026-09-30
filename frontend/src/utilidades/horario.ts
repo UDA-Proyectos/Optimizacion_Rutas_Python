@@ -10,6 +10,16 @@ export function minutosAHhMm(minutos: number): string {
   return `${h}:${m}`;
 }
 
+/** 95 -> "1 h 35 min", 40 -> "40 min". */
+export function formatearDuracion(minutos: number): string {
+  const horas = Math.floor(minutos / 60);
+  const resto = minutos % 60;
+  if (horas === 0) {
+    return `${resto} min`;
+  }
+  return resto === 0 ? `${horas} h` : `${horas} h ${resto} min`;
+}
+
 export function hhMmAMinutos(valor: string): number | null {
   const coincidencia = /^(\d{1,2}):(\d{2})$/.exec(valor);
   if (!coincidencia) {

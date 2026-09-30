@@ -5,10 +5,12 @@ import { listarDepositos } from "../../api/depositos";
 import { confirmarRuta, editarRuta, obtenerRutaActiva, optimizarRuta } from "../../api/rutas";
 import { useEnvioFormulario } from "../../hooks/useEnvioFormulario";
 import type { ClientePublico } from "../../tipos/cliente";
-import type { ParadaSeleccionada, RutaPreview } from "../../tipos/ruta";
+import type { DepositoPublico } from "../../tipos/deposito";
+import type { OptimizarRutaRequest, RutaPreview } from "../../tipos/ruta";
 import { hhMmAMinutos, minutosAHhMm } from "../../utilidades/horario";
 import { FormularioDeposito } from "../formularios/FormularioDeposito";
 import { Boton } from "../ui/Boton";
+import { CampoSelect } from "../ui/CampoSelect";
 import { DatoNumerico } from "../ui/DatoNumerico";
 import { BannerError } from "../ui/Formulario";
 import { TarjetaContenido } from "../ui/TarjetaContenido";
@@ -53,6 +55,17 @@ const DATOS_VACIOS: DatosParada = {
   ventana_fin: null,
 };
 
+/** Lo que se precarga al marcar un lugar: sus datos habituales (editables por
+ * ruta sin tocar el lugar); sin datos habituales arranca vacío como siempre. */
+function datosHabituales(cliente: ClientePublico): DatosParada {
+  return {
+    carga_kg: cliente.demanda_carga_default ?? 0,
+    unidades: 0,
+    ventana_inicio: cliente.ventana_inicio_default,
+    ventana_fin: cliente.ventana_fin_default,
+  };
+}
+
 const CLASE_INPUT_CHICO =
   "h-9 w-[68px] shrink-0 rounded-md border border-borde-input bg-blanco px-2 text-right font-mono text-[13px] text-texto-fuerte outline-none transition-[border-color,box-shadow] duration-150 focus:border-primario focus:shadow-[0_0_0_3px_rgba(124,58,237,0.15)] focus-visible:outline-none";
 
@@ -85,13 +98,16 @@ export function FlujoArmarRuta({
   const [seleccion, setSeleccion] = useState<Seleccion>({});
   const [usaVentanasHorarias, setUsaVentanasHorarias] = useState(false);
   const [preview, setPreview] = useState<RutaPreview | null>(null);
+  const [depositos, setDepositos] = useState<DepositoPublico[]>([]);
+  // "" = sin elegir: el backend usa el primer depósito.
+  const [depositoId, setDepositoId] = useState("");
   const { error, enviando, enviar } = useEnvioFormulario();
 
   useEffect(() => {
     if (modoEdicion) {
       // Si ya hay una ruta hoy, su depósito ya existe — no hace falta el
       // chequeo de depósito, directo a precargar la selección actual.
-      obtenerRutaActiva().then((ruta) => {
+      Promise.all([obtenerRutaActiva(), listarDepositos()]).then(([ruta, listaDepositos]) => {
         const seleccionActual: Seleccion = {};
         for (const parada of ruta?.paradas ?? []) {
           seleccionActual[parada.cliente_id] = {
@@ -103,6 +119,13 @@ export function FlujoArmarRuta({
         }
         setSeleccion(seleccionActual);
         setUsaVentanasHorarias(ruta?.usa_ventanas_horarias ?? false);
+        setDepositos(listaDepositos);
+        // La ruta solo trae las coordenadas de su depósito: se reconoce por
+        // ahí para no reasignarla al primero al guardar los cambios.
+        const deDeLaRuta = listaDepositos.find(
+          (d) => d.latitud === ruta?.deposito.latitud && d.longitud === ruta?.deposito.longitud,
+        );
+        setDepositoId(deDeLaRuta?.id ?? "");
         setVista("seleccion");
       });
       return;
@@ -111,21 +134,22 @@ export function FlujoArmarRuta({
       setSeleccion(seleccionInicial.seleccion);
       setUsaVentanasHorarias(seleccionInicial.usaVentanasHorarias);
     }
-    listarDepositos().then((depositos) => {
-      setVista(depositos.length > 0 ? "seleccion" : "deposito");
+    listarDepositos().then((listaDepositos) => {
+      setDepositos(listaDepositos);
+      setVista(listaDepositos.length > 0 ? "seleccion" : "deposito");
     });
     // seleccionInicial es un valor de una sola vez al montar (viene de "usar
     // de nuevo" en el historial) — no hace falta reaccionar a que cambie.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modoEdicion]);
 
-  function alternarSeleccion(clienteId: string, marcado: boolean) {
+  function alternarSeleccion(cliente: ClientePublico, marcado: boolean) {
     setSeleccion((actual) => {
       const siguiente = { ...actual };
       if (marcado) {
-        siguiente[clienteId] = actual[clienteId] ?? DATOS_VACIOS;
+        siguiente[cliente.id] = actual[cliente.id] ?? datosHabituales(cliente);
       } else {
-        delete siguiente[clienteId];
+        delete siguiente[cliente.id];
       }
       return siguiente;
     });
@@ -138,19 +162,25 @@ export function FlujoArmarRuta({
     }));
   }
 
-  function paradasSeleccionadas(): ParadaSeleccionada[] {
-    return Object.entries(seleccion).map(([cliente_id, datos]) => ({
-      cliente_id,
-      ...datos,
-    }));
+  function pedido(): OptimizarRutaRequest {
+    return {
+      // Sin ventanas horarias se mandan en null aunque el lugar tenga un
+      // horario habitual precargado: si no, quedarían guardadas en la ruta y
+      // marcarían paradas "en riesgo" en una ruta que no las usa.
+      paradas: Object.entries(seleccion).map(([cliente_id, datos]) => ({
+        cliente_id,
+        ...datos,
+        ventana_inicio: usaVentanasHorarias ? datos.ventana_inicio : null,
+        ventana_fin: usaVentanasHorarias ? datos.ventana_fin : null,
+      })),
+      usa_ventanas_horarias: usaVentanasHorarias,
+      deposito_id: depositoId || null,
+    };
   }
 
   function manejarOptimizar() {
     enviar(async () => {
-      const resultado = await optimizarRuta({
-        paradas: paradasSeleccionadas(),
-        usa_ventanas_horarias: usaVentanasHorarias,
-      });
+      const resultado = await optimizarRuta(pedido());
       setPreview(resultado);
       setVista("preview");
     }, "No se pudo optimizar la ruta.");
@@ -159,7 +189,7 @@ export function FlujoArmarRuta({
   function manejarConfirmar() {
     enviar(async () => {
       const guardar = modoEdicion ? editarRuta : confirmarRuta;
-      await guardar({ paradas: paradasSeleccionadas(), usa_ventanas_horarias: usaVentanasHorarias });
+      await guardar(pedido());
       onConfirmada();
     }, "No se pudo guardar la ruta.");
   }
@@ -240,6 +270,14 @@ export function FlujoArmarRuta({
           Usar ventanas horarias para esta ruta
         </span>
       </label>
+      {depositos.length > 1 && (
+        <CampoSelect
+          etiqueta="Depósito de salida"
+          opciones={depositos.map((d) => ({ valor: d.id, etiqueta: d.nombre }))}
+          value={depositoId || depositos[0].id}
+          onChange={(e) => setDepositoId(e.target.value)}
+        />
+      )}
       {error && <BannerError>{error}</BannerError>}
       <ul className="flex flex-col gap-2.5 xl:grid xl:grid-cols-2 xl:gap-3">
         {clientes.map((cliente) => {
@@ -252,7 +290,7 @@ export function FlujoArmarRuta({
               direccion={cliente.direccion}
               seleccionable={{
                 marcado,
-                onCambiar: (valor) => alternarSeleccion(cliente.id, valor),
+                onCambiar: (valor) => alternarSeleccion(cliente, valor),
               }}
               trailing={
                 marcado && (

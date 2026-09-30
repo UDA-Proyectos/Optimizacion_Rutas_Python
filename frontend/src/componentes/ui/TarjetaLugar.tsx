@@ -9,6 +9,8 @@ interface Props {
   nombre: string;
   direccion: string;
   telefono?: string | null;
+  /** Línea extra de detalle bajo la dirección (ej. datos habituales del lugar). */
+  detalle?: string | null;
   /** El mismo EstadoParada del dominio (sin importar el tipo acá para no
    * atarle a esta app UI genérica una dependencia de tipos/ruta.ts) — solo
    * en_curso/completada tienen tratamiento visual propio, pendiente/fallida
@@ -35,6 +37,7 @@ export function TarjetaLugar({
   nombre,
   direccion,
   telefono,
+  detalle,
   estado,
   seleccionable,
   trailing,
@@ -45,6 +48,7 @@ export function TarjetaLugar({
       <p className="mb-0.5 text-[13.5px] font-semibold text-texto-fuerte">{nombre}</p>
       <p className="mb-0.5 text-[12.5px] text-texto-cuerpo">{direccion}</p>
       {telefono && <p className="text-xs text-texto-mutado">{telefono}</p>}
+      {detalle && <p className="mt-0.5 font-mono text-[11px] text-texto-tenue">{detalle}</p>}
     </div>
   );
 

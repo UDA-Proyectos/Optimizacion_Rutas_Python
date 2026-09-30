@@ -1,18 +1,24 @@
 import { useEffect, useState } from "react";
 
 import { listarClientes } from "../../api/clientes";
+import { listarIncidencias } from "../../api/incidencias";
 import { useRutaActiva } from "../../hooks/useRutaActiva";
+import { useUbicacion } from "../../hooks/useUbicacion";
 import { type AccionPendiente, PestanaLugares } from "../../paginas/PestanaLugares";
 import type { UsuarioPublico } from "../../tipos/auth";
 import type { ClientePublico } from "../../tipos/cliente";
+import type { IncidenciaPublica } from "../../tipos/incidencia";
 import {
   construirUrlGoogleMaps,
   origenNavegacionParaParadaActual,
 } from "../../utilidades/googleMaps";
 import { PanelCuenta } from "../cuenta/PanelCuenta";
+import { FormularioIncidencia } from "../incidencias/FormularioIncidencia";
+import { PanelIncidencias } from "../incidencias/PanelIncidencias";
 import { PanelHistorial } from "../historial/PanelHistorial";
 import type { Seleccion } from "../rutas/FlujoArmarRuta";
 import { RutaDeHoyEscritorio } from "../rutas/RutaDeHoyEscritorio";
+import { BannerConexion } from "../ui/BannerConexion";
 import { combinarClases } from "../ui/combinarClases";
 import { PanelVehiculo } from "../vehiculo/PanelVehiculo";
 import { ItemsNav, type Seccion } from "./NavSidebar";
@@ -36,14 +42,33 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [accionPendiente, setAccionPendiente] = useState<AccionPendiente | undefined>(undefined);
   const [clientes, setClientes] = useState<ClientePublico[]>([]);
-  const { ruta, cargando, enviando, error, ejecutar, recargar } = useRutaActiva();
+  const [incidencias, setIncidencias] = useState<IncidenciaPublica[]>([]);
+  const [reportando, setReportando] = useState(false);
+  const { ruta, cargando, enviando, error, sinConexion, copiaGuardadaEn, ejecutar, recargar } =
+    useRutaActiva();
+  const gps = useUbicacion();
 
   useEffect(() => {
     // Se dispara con cada cambio de sección (no solo al montar) para que el
     // badge de "Mis lugares" y el teléfono usado en "Llamar al cliente" no
     // queden desactualizados después de agregar/editar/eliminar un lugar.
-    listarClientes().then(setClientes);
-  }, [seccion]);
+    // Sin conexión estos pedidos fallan: se ignora, se conserva lo último visto.
+    listarClientes()
+      .then(setClientes)
+      .catch(() => {});
+    // Las incidencias también nacen fuera de esta sección (al marcar una
+    // parada como no entregada), así que se refrescan igual.
+    listarIncidencias()
+      .then(setIncidencias)
+      .catch(() => {});
+  }, [seccion, ruta]);
+
+  function manejarIncidenciaReportada() {
+    setReportando(false);
+    listarIncidencias()
+      .then(setIncidencias)
+      .catch(() => {});
+  }
 
   function irAEditarRuta() {
     setAccionPendiente({ tipo: "editar" });
@@ -69,7 +94,9 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
   }
 
   const paradaActual = ruta?.paradas.find((p) => p.estado === "en_curso");
-  const origenNavegacion = ruta ? origenNavegacionParaParadaActual(ruta.deposito, ruta.paradas) : null;
+  const origenNavegacion = ruta
+    ? origenNavegacionParaParadaActual(ruta.deposito, ruta.paradas, gps.ubicacion)
+    : null;
   const clientePorId = new Map(clientes.map((c) => [c.id, c] as const));
 
   const subtitulo =
@@ -82,7 +109,9 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
         : seccion === "vehiculo"
           ? usuario.vehiculo?.patente
           : seccion === "incidencias"
-            ? "Sin incidencias registradas"
+            ? incidencias.length === 0
+              ? "Sin incidencias registradas"
+              : `${incidencias.length} incidencia${incidencias.length > 1 ? "s" : ""} reportada${incidencias.length > 1 ? "s" : ""}`
             : seccion === "cuenta"
               ? usuario.email
               : undefined;
@@ -201,9 +230,16 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
 
             <button
               type="button"
-              disabled
-              title="Próximamente"
-              className="h-[38px] cursor-not-allowed rounded-lg border border-borde-input bg-blanco px-3.5 text-[12.5px] font-semibold text-texto-cuerpo opacity-60"
+              disabled={ruta?.estado !== "en_curso" || sinConexion}
+              title={
+                sinConexion
+                  ? "Necesitás conexión para reportar una incidencia"
+                  : ruta?.estado === "en_curso"
+                    ? undefined
+                    : "Iniciá tu ruta para reportar una incidencia"
+              }
+              onClick={() => setReportando(true)}
+              className="h-[38px] rounded-lg border border-borde-input bg-blanco px-3.5 text-[12.5px] font-semibold text-texto-cuerpo disabled:cursor-not-allowed disabled:opacity-60"
             >
               Reportar incidencia
             </button>
@@ -233,6 +269,8 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
           </div>
         </header>
 
+        {sinConexion && <BannerConexion copiaGuardadaEn={copiaGuardadaEn} />}
+
         <div
           className="min-h-0 flex-1 overflow-y-auto"
           style={{
@@ -246,11 +284,14 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
               ruta={ruta}
               cargando={cargando}
               enviando={enviando}
+              sinConexion={sinConexion}
+              gps={gps}
               error={error}
               ejecutar={ejecutar}
               usuario={usuario}
               clientePorId={clientePorId}
               onIrAArmarRuta={irAArmarRuta}
+              onIrAHistorial={() => setSeccion("historial")}
               onEditar={irAEditarRuta}
             />
           )}
@@ -278,54 +319,33 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
           )}
 
           {seccion === "incidencias" && (
-            <PlaceholderSeccion
-              titulo="Incidencias"
-              descripcion="Historial de incidencias que reportaste, con estado de resolución del dador de carga y su impacto en tu reputación."
-              onVolver={() => setSeccion("ruta")}
-            />
+            <div className="p-4 lg:p-6">
+              <PanelIncidencias incidencias={incidencias} />
+            </div>
           )}
 
           {seccion === "cuenta" && <PanelCuenta usuario={usuario} onCerrarSesion={onLogout} />}
         </div>
       </div>
-    </div>
-  );
-}
 
-function PlaceholderSeccion({
-  titulo,
-  descripcion,
-  onVolver,
-}: {
-  titulo: string;
-  descripcion: string;
-  onVolver: () => void;
-}) {
-  return (
-    <div className="flex min-h-full items-center justify-center p-4 sm:p-10">
-      <div className="max-w-[420px] rounded-2xl border border-borde bg-white/90 px-5 py-6 text-center shadow-md backdrop-blur-[10px] sm:px-7 sm:py-8">
-        <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primario/10 text-[#6428CC]">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="3" />
-            <path d="M3 9h18" />
-            <path d="M9 21V9" />
-          </svg>
-        </div>
-        <p className="mb-1.5 text-[15px] font-bold text-texto-fuerte">{titulo}</p>
-        <p className="mb-4.5 text-[12.5px] leading-relaxed text-texto-mutado">{descripcion}</p>
-        <p className="mb-5 inline-flex items-center gap-1.5 rounded-pill bg-fondo px-2.5 py-1 text-[10.5px] font-semibold text-texto-cuerpo">
-          Fuera del alcance de este prototipo
-        </p>
-        <div>
-          <button
-            type="button"
-            onClick={onVolver}
-            className="h-10 rounded-[10px] bg-primario px-4.5 text-[12.5px] font-bold text-blanco shadow-boton-primario"
+      {reportando && ruta && (
+        <div
+          className="fixed inset-0 z-[900] flex items-center justify-center bg-[rgba(16,24,40,0.4)] p-4"
+          onClick={() => setReportando(false)}
+        >
+          <div
+            className="w-full max-w-[420px] rounded-2xl border border-borde bg-blanco px-5 py-5 shadow-md"
+            onClick={(e) => e.stopPropagation()}
           >
-            Volver a Ruta de hoy
-          </button>
+            <p className="mb-4 text-[15px] font-bold text-texto-fuerte">Reportar incidencia</p>
+            <FormularioIncidencia
+              paradas={ruta.paradas}
+              onGuardada={manejarIncidenciaReportada}
+              onCancelar={() => setReportando(false)}
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

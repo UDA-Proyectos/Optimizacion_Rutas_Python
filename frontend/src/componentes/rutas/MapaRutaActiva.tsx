@@ -6,6 +6,7 @@ import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet
 import { obtenerGeometriaRutaActiva } from "../../api/rutas";
 import type { DepositoResumen, ParadaRutaPublica } from "../../tipos/ruta";
 import {
+  type Coordenada,
   construirUrlGoogleMaps,
   origenNavegacionParaParadaActual,
 } from "../../utilidades/googleMaps";
@@ -53,6 +54,15 @@ const iconoDeposito = L.divIcon({
   iconAnchor: [11, 11],
 });
 
+// La posición del chofer: punto azul con halo, distinto de los pines de
+// parada (verde/gris/rojo) y del depósito (oscuro).
+const iconoUbicacion = L.divIcon({
+  className: "",
+  html: '<div class="h-[18px] w-[18px] rounded-full border-[3px] border-blanco bg-[#2E5CFF] shadow-[0_0_0_6px_rgba(46,92,255,0.22)]"></div>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
 function AjustarVista({ puntos }: { puntos: [number, number][] }) {
   const mapa = useMap();
   useEffect(() => {
@@ -72,17 +82,28 @@ interface Props {
    * RutaDeHoyEscritorio.tsx). Default true: comportamiento actual, sin
    * cambios para quien no pase estas props (uso: mobile). */
   overlaySimple?: boolean;
+  /** Posición actual del chofer, solo si activó su ubicación. */
+  ubicacion?: Coordenada | null;
   children?: ReactNode;
 }
 
-export function MapaRutaActiva({ deposito, paradas, overlaySimple = true, children }: Props) {
+export function MapaRutaActiva({
+  deposito,
+  paradas,
+  overlaySimple = true,
+  ubicacion = null,
+  children,
+}: Props) {
   const [tramos, setTramos] = useState<[number, number][][]>([]);
 
+  // Saltear una parada reordena el recorrido: la traza se vuelve a pedir
+  // cuando cambia la secuencia de paradas, no solo al montar.
+  const secuenciaParadas = paradas.map((parada) => parada.id).join(",");
   useEffect(() => {
     obtenerGeometriaRutaActiva()
       .then((geometria) => setTramos(geometria.tramos))
       .catch(() => setTramos([]));
-  }, []);
+  }, [secuenciaParadas]);
 
   const indiceProxima = paradas.findIndex((parada) => parada.estado === "en_curso");
   const proximaParada = indiceProxima === -1 ? undefined : paradas[indiceProxima];
@@ -111,11 +132,12 @@ export function MapaRutaActiva({ deposito, paradas, overlaySimple = true, childr
   // último tramo (vuelta al depósito) no tiene parada asociada y queda
   // siempre entre los restantes.
   const tramoActual = indiceProxima === -1 ? undefined : tramos[indiceProxima];
-  const tramosRestantes = tramos.filter(
-    (_, indice) => indice !== indiceProxima && paradas[indice]?.estado !== "completada",
-  );
+  const tramosRestantes = tramos.filter((_, indice) => {
+    const estado = paradas[indice]?.estado;
+    return indice !== indiceProxima && estado !== "completada" && estado !== "fallida";
+  });
 
-  const origenNavegacion = origenNavegacionParaParadaActual(deposito, paradas);
+  const origenNavegacion = origenNavegacionParaParadaActual(deposito, paradas, ubicacion);
 
   return (
     <div className="relative h-full overflow-hidden rounded-lg border border-borde bg-superficie-hundida shadow-sm">
@@ -145,6 +167,15 @@ export function MapaRutaActiva({ deposito, paradas, overlaySimple = true, childr
               icon={iconoParada(parada.estado)}
             />
           ))}
+          {ubicacion && (
+            <Marker
+              position={[ubicacion.latitud, ubicacion.longitud]}
+              icon={iconoUbicacion}
+              zIndexOffset={1000}
+            />
+          )}
+          {/* La vista se ajusta solo a la ruta: si incluyera la posición, el
+              mapa saltaría en cada actualización del GPS. */}
           <AjustarVista puntos={puntosVisibles} />
         </MapContainer>
       </div>

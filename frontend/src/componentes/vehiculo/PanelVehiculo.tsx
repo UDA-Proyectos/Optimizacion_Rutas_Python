@@ -1,23 +1,46 @@
-import { OPCIONES_TIPO_VEHICULO } from "../formularios/opcionesVehiculo";
+import { useState } from "react";
+
 import type { UsuarioPublico } from "../../tipos/auth";
 import type { RutaPublica } from "../../tipos/ruta";
+import { OPCIONES_TIPO_VEHICULO } from "../formularios/opcionesVehiculo";
+import { Boton } from "../ui/Boton";
 import { combinarClases } from "../ui/combinarClases";
+import { FormularioVehiculo } from "./FormularioVehiculo";
 
 interface Props {
   usuario: UsuarioPublico;
   ruta: RutaPublica | null;
 }
 
-/** Solo lectura — no hay endpoint para editar el vehículo todavía, así que
- * esto muestra los datos reales que ya carga el registro (ver
- * usuario.vehiculo) sin inventar campos que la app no trackea (VTV,
- * seguro, mantenimiento). */
+/** Muestra los datos reales que carga el registro (ver usuario.vehiculo) y
+ * permite editarlos, sin inventar campos que la app no trackea (VTV, seguro,
+ * mantenimiento). */
 export function PanelVehiculo({ usuario, ruta }: Props) {
   const vehiculo = usuario.vehiculo;
+  const [editando, setEditando] = useState(false);
 
   if (!vehiculo) {
     return (
       <p className="text-[13px] text-texto-mutado">No tenés un vehículo registrado todavía.</p>
+    );
+  }
+
+  if (editando) {
+    return (
+      <div className="mx-auto max-w-[520px] rounded-2xl border border-borde bg-blanco px-6 py-7 shadow-md">
+        <p className="mb-4 text-[15px] font-bold text-texto-fuerte">Editar mi vehículo</p>
+        {ruta && (
+          <p className="mb-4 text-[12px] text-texto-mutado">
+            Tenés una ruta para hoy: hasta que la termines o la canceles no se puede cambiar la
+            patente ni la capacidad.
+          </p>
+        )}
+        <FormularioVehiculo
+          vehiculo={vehiculo}
+          onGuardado={() => setEditando(false)}
+          onCancelar={() => setEditando(false)}
+        />
+      </div>
     );
   }
 
@@ -86,9 +109,9 @@ export function PanelVehiculo({ usuario, ruta }: Props) {
         </div>
       </div>
 
-      <p className="text-center text-[11.5px] text-texto-tenue">
-        Para cambiar los datos de tu vehículo, escribinos — todavía no hay una pantalla de edición.
-      </p>
+      <Boton variante="secundario" onClick={() => setEditando(true)}>
+        Editar vehículo
+      </Boton>
     </div>
   );
 }
