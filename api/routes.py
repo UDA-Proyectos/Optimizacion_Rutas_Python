@@ -1,8 +1,12 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from api.schemas import PeticionRutas
 from routing.solver import resolver_ruteo
 from services.osrm_client import obtener_matriz_osrm
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Ruteo"])
 
@@ -68,12 +72,21 @@ async def optimizar_rutas(datos_dia: PeticionRutas):
             ventanas_horarias,
             datos_dia.tipo_problema,
         )
+    except ValueError as e:
+        # Entradas inconsistentes entre sí (ej. matriz que no coincide con la
+        # cantidad de nodos): es un pedido inválido, no un fallo del servidor.
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception:
+        # El detalle va al log, no a la respuesta: puede traer internos de
+        # OR-Tools o del servidor que no le sirven (ni le corresponden) al cliente.
+        logger.exception("Falla inesperada al resolver el ruteo")
+        raise HTTPException(status_code=500, detail="Error interno al resolver la ruta.") from None
 
-        if resultado["estado"] == "Fallo":
-            raise HTTPException(status_code=400, detail=resultado["mensaje"])
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error OR-Tools: {e!s}")
+    # Fuera del try de arriba a propósito: un problema sin solución es un 400, y
+    # el `except Exception` genérico lo convertía en un 500 (HTTPException hereda
+    # de Exception).
+    if resultado["estado"] == "Fallo":
+        raise HTTPException(status_code=400, detail=resultado["mensaje"])
 
     # Mapeo de salida mejorado
     nombres_nodos = ["Depósito"] + [cliente.id_cliente for cliente in datos_dia.clientes]

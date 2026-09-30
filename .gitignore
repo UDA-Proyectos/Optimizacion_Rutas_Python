@@ -5,3 +5,6 @@ __pycache__/
 node_modules/
 frontend/dist/
 *.pyc
+
+# Datos preparados de OSRM (scripts/preparar_osrm.py): pesados y regenerables
+data/osrm/

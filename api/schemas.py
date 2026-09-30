@@ -1,11 +1,17 @@
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class VentanaHoraria(BaseModel):
     inicio: int = Field(..., description="Minuto de inicio de la ventana")
     fin: int = Field(..., description="Minuto de fin de la ventana")
+
+    @model_validator(mode="after")
+    def _fin_despues_del_inicio(self):
+        if self.fin <= self.inicio:
+            raise ValueError("La ventana horaria debe terminar después de empezar.")
+        return self
 
 
 class Coordenada(BaseModel):

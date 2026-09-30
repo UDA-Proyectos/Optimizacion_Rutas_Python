@@ -3,6 +3,41 @@ from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 from core.config import settings
 
 
+def _es_cuadrada(matriz: list, lado: int) -> bool:
+    return len(matriz) == lado and all(len(fila) == lado for fila in matriz)
+
+
+def _validar_entradas(
+    matriz_distancias: list,
+    demandas: list,
+    capacidades_vehiculos: list,
+    matriz_tiempos: list | None,
+    tiempos_servicio: list | None,
+    ventanas_horarias: list | None,
+    tipo_problema: str,
+) -> None:
+    """Falla con ValueError ante entradas inconsistentes entre sí, en vez de
+    dejar que OR-Tools (o un IndexError en un callback) reviente sin un mensaje
+    útil."""
+    num_nodos = len(matriz_distancias)
+    if num_nodos == 0 or not _es_cuadrada(matriz_distancias, num_nodos):
+        raise ValueError("La matriz de distancias debe ser cuadrada y no estar vacía.")
+    if len(demandas) != num_nodos:
+        raise ValueError(
+            f"La matriz de distancias tiene {num_nodos} nodos pero hay {len(demandas)} demandas."
+        )
+    if not capacidades_vehiculos:
+        raise ValueError("Hace falta al menos un vehículo.")
+
+    if tipo_problema == "VRPTW":
+        if matriz_tiempos is None or not _es_cuadrada(matriz_tiempos, num_nodos):
+            raise ValueError("La matriz de tiempos debe ser cuadrada y del mismo tamaño.")
+        if tiempos_servicio is None or len(tiempos_servicio) != num_nodos:
+            raise ValueError("Hace falta un tiempo de servicio por nodo.")
+        if ventanas_horarias is None or len(ventanas_horarias) != num_nodos:
+            raise ValueError("Hace falta una ventana horaria por nodo.")
+
+
 def resolver_ruteo(
     matriz_distancias: list,
     demandas: list,
@@ -16,6 +51,16 @@ def resolver_ruteo(
     num_nodos = len(matriz_distancias)
     num_vehiculos = len(capacidades_vehiculos)
     nodo_deposito = 0
+
+    _validar_entradas(
+        matriz_distancias,
+        demandas,
+        capacidades_vehiculos,
+        matriz_tiempos,
+        tiempos_servicio,
+        ventanas_horarias,
+        tipo_problema,
+    )
 
     manager = pywrapcp.RoutingIndexManager(num_nodos, num_vehiculos, nodo_deposito)
     routing = pywrapcp.RoutingModel(manager)

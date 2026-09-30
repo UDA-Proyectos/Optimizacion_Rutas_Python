@@ -17,14 +17,21 @@ services:
       timeout: 5s
       retries: 5
 
-  # osrm:
-  #   Pendiente — roadmap CLAUDE.md ítem 4 (self-hostear OSRM con extracto de Mendoza).
-  #   image: osrm/osrm-backend
-  #   volumes:
-  #     - ./data/osrm:/data
-  #   command: osrm-routed --algorithm mld /data/mendoza.osrm
-  #   ports:
-  #     - "5001:5000"
+  # OSRM propio (perfil driving, MLD) con los datos que prepara
+  # `scripts/preparar_osrm.py`. Va en un profile para que un `docker compose up -d`
+  # sin datos preparados no deje un contenedor reiniciándose:
+  #   docker compose --profile osrm up -d osrm
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    container_name: vrp_osrm
+    profiles: ["osrm"]
+    restart: unless-stopped
+    # El default de --max-table-size es 100 ubicaciones; una ruta larga lo supera.
+    command: osrm-routed --algorithm mld --max-table-size 300 /data/mendoza.osrm
+    volumes:
+      - ./data/osrm:/data:ro
+    ports:
+      - "${OSRM_PORT:-5001}:5000"
 
 volumes:
   postgres_data:
