@@ -364,6 +364,10 @@ class Ruta(Base):
     def capacidad_vehiculo_kg(self) -> int:
         return self.vehiculo.capacidad_carga_kg
 
+    @property
+    def incidencias_total(self) -> int:
+        return len(self.incidencias)
+
 
 class ParadaRuta(Base):
     __tablename__ = "paradas_ruta"
@@ -403,6 +407,17 @@ class ParadaRuta(Base):
     )
     hora_real_salida: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # Saltear no deja un estado propio (la parada vuelve a pendiente al final
+    # del recorrido); este contador es lo único que lo registra, para el
+    # resumen de cierre.
+    veces_salteada: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # Copia del motivo de la Incidencia que se crea al fallar la parada: el
+    # historial y la timeline lo leen sin join. NULL salvo en paradas fallidas.
+    motivo_fallo: Mapped[TipoIncidencia | None] = mapped_column(
+        Enum(TipoIncidencia, name="motivo_fallo", native_enum=False), nullable=True
     )
 
     ruta: Mapped["Ruta"] = relationship(back_populates="paradas", foreign_keys=[ruta_id])

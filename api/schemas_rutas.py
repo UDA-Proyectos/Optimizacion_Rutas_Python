@@ -1,9 +1,9 @@
 import uuid
 from datetime import UTC, date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
-from db.modelos import EstadoParada, EstadoRuta, TipoProblema
+from db.modelos import EstadoParada, EstadoRuta, TipoIncidencia, TipoProblema
 
 # Margen antes del cierre de una ventana horaria para marcar una parada
 # "en riesgo" (todavía no vencida, pero al filo) — puramente de UI, no
@@ -34,6 +34,22 @@ class ParadaSeleccionada(BaseModel):
 class OptimizarRutaRequest(BaseModel):
     paradas: list[ParadaSeleccionada] = Field(..., min_length=1)
     usa_ventanas_horarias: bool = False
+    # None = el primer depósito del chofer (comportamiento previo).
+    deposito_id: uuid.UUID | None = None
+
+
+class FallarParadaRequest(BaseModel):
+    motivo: TipoIncidencia
+    descripcion: str | None = Field(None, max_length=500)
+
+    @field_validator("motivo")
+    @classmethod
+    def _motivo_de_parada(cls, motivo: TipoIncidencia) -> TipoIncidencia:
+        # Un problema del vehículo no es un motivo por el que falle *una*
+        # parada: se reporta como incidencia general de la ruta.
+        if motivo == TipoIncidencia.PROBLEMA_VEHICULO:
+            raise ValueError("Ese motivo no aplica a una parada puntual.")
+        return motivo
 
 
 class ParadaPreview(BaseModel):
@@ -81,7 +97,10 @@ class ParadaRutaPublica(BaseModel):
     ventana_inicio_snapshot: int | None
     ventana_fin_snapshot: int | None
     hora_estimada_llegada: int | None
+    hora_real_llegada: datetime | None
     hora_real_salida: datetime | None
+    veces_salteada: int
+    motivo_fallo: TipoIncidencia | None
 
     @computed_field
     @property
@@ -115,6 +134,66 @@ class DepositoResumen(BaseModel):
     longitud: float
 
 
+class ResumenRuta(BaseModel):
+    """Cómo resultó realmente una ruta terminada. La distancia es la
+    *planificada*: no se registra el recorrido real del vehículo, así que no se
+    presenta como recorrida."""
+
+    duracion_min: int | None
+    paradas_completadas: int
+    paradas_fallidas: int
+    paradas_salteadas: int
+    carga_entregada_kg: int
+    incidencias: int
+    distancia_planificada_m: int | None
+    # Solo con ventanas horarias (None si la ruta no las usó o ninguna
+    # parada completada tenía ventana).
+    ventanas_cumplidas: int | None
+    ventanas_evaluadas: int | None
+    ventanas_cumplidas_pct: int | None
+
+
+def calcular_resumen(
+    *,
+    hora_inicio_real: datetime | None,
+    hora_fin_real: datetime | None,
+    paradas: list,
+    usa_ventanas_horarias: bool,
+    distancia_total_m: int | None,
+    incidencias: int,
+) -> ResumenRuta:
+    """Función pura sobre paradas ya cargadas (cualquier objeto con `estado`,
+    `demanda_carga_snapshot`, `veces_salteada` y `ventana_cumplida`)."""
+    completadas = [p for p in paradas if p.estado == EstadoParada.COMPLETADA]
+    duracion = (
+        round((hora_fin_real - hora_inicio_real).total_seconds() / 60)
+        if hora_inicio_real and hora_fin_real
+        else None
+    )
+
+    cumplidas = evaluadas = pct = None
+    if usa_ventanas_horarias:
+        evaluadas = sum(1 for p in completadas if p.ventana_cumplida is not None)
+        if evaluadas:
+            cumplidas = sum(1 for p in completadas if p.ventana_cumplida is True)
+            pct = round(100 * cumplidas / evaluadas)
+        else:
+            evaluadas = None
+
+    return ResumenRuta(
+        duracion_min=duracion,
+        paradas_completadas=len(completadas),
+        paradas_fallidas=sum(1 for p in paradas if p.estado == EstadoParada.FALLIDA),
+        paradas_salteadas=sum(1 for p in paradas if p.veces_salteada > 0),
+        carga_entregada_kg=sum(p.demanda_carga_snapshot for p in completadas),
+        incidencias=incidencias,
+        distancia_planificada_m=distancia_total_m,
+        ventanas_cumplidas=cumplidas,
+        ventanas_evaluadas=evaluadas,
+        ventanas_cumplidas_pct=pct,
+    )
+
+
 class RutaPublica(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -124,17 +203,35 @@ class RutaPublica(BaseModel):
     tipo_problema: TipoProblema
     distancia_total_m: int | None
     hora_inicio_real: datetime | None
+    hora_fin_real: datetime | None
     hora_fin_estimada_min: int | None
     fecha_creacion: datetime
     deposito: DepositoResumen
     capacidad_vehiculo_kg: int
     explicacion: str | None
+    incidencias_total: int
     paradas: list[ParadaRutaPublica]
 
     @computed_field
     @property
     def usa_ventanas_horarias(self) -> bool:
         return _usa_ventanas_horarias(self.tipo_problema)
+
+    @computed_field
+    @property
+    def resumen(self) -> ResumenRuta | None:
+        """Solo una ruta completada tiene resumen — una en curso todavía no
+        tiene duración ni porcentaje de ventanas que mostrar."""
+        if self.estado != EstadoRuta.COMPLETADA:
+            return None
+        return calcular_resumen(
+            hora_inicio_real=self.hora_inicio_real,
+            hora_fin_real=self.hora_fin_real,
+            paradas=self.paradas,
+            usa_ventanas_horarias=self.usa_ventanas_horarias,
+            distancia_total_m=self.distancia_total_m,
+            incidencias=self.incidencias_total,
+        )
 
 
 class RutaHistorialItem(BaseModel):
@@ -151,6 +248,8 @@ class RutaHistorialItem(BaseModel):
     distancia_total_m: int | None
     paradas_total: int
     paradas_completadas: int
+    paradas_fallidas: int
+    incidencias_total: int
 
     @computed_field
     @property

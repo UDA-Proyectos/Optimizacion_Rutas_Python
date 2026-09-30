@@ -1,16 +1,25 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from db.modelos import PlanSuscripcion, RolUsuario, TipoVehiculo
 
+# Reglas compartidas por el registro y por la edición de perfil/vehículo:
+# una sola definición, para que no diverjan.
+Contrasena = Annotated[str, Field(min_length=8, max_length=128)]
+NombreCompleto = Annotated[str, Field(min_length=2, max_length=200)]
+Telefono = Annotated[str, Field(min_length=6, max_length=30)]
+Patente = Annotated[str, Field(min_length=4, max_length=12)]
+CapacidadCargaKg = Annotated[int, Field(gt=0)]
+
 
 class DatosPersona(BaseModel):
     email: EmailStr
-    contrasena: str = Field(..., min_length=8, max_length=128)
+    contrasena: Contrasena
     confirmar_contrasena: str
-    nombre_completo: str = Field(..., min_length=2, max_length=200)
+    nombre_completo: NombreCompleto
 
     @model_validator(mode="after")
     def validar_contrasenas_coinciden(self):
@@ -20,10 +29,57 @@ class DatosPersona(BaseModel):
 
 
 class DatosVehiculo(BaseModel):
-    telefono: str = Field(..., min_length=6, max_length=30)
+    telefono: Telefono
     tipo_vehiculo: TipoVehiculo
-    patente: str = Field(..., min_length=4, max_length=12)
-    capacidad_carga_kg: int = Field(..., gt=0)
+    patente: Patente
+    capacidad_carga_kg: CapacidadCargaKg
+
+
+def _rechazar_nulos(modelo: BaseModel, campos: tuple[str, ...]) -> None:
+    """En un PATCH, "no enviado" y "enviado como null" son cosas distintas: las
+    columnas de estos campos no admiten NULL, así que un null explícito es un
+    error de validación y no un 500 al guardar."""
+    for campo in campos:
+        if campo in modelo.model_fields_set and getattr(modelo, campo) is None:
+            raise ValueError(f"{campo} no puede ser nulo.")
+
+
+class PerfilActualizar(BaseModel):
+    """El email no se edita: si viene en el cuerpo, se ignora."""
+
+    nombre_completo: NombreCompleto | None = None
+    telefono: Telefono | None = None
+
+    @model_validator(mode="after")
+    def _sin_nulos(self):
+        _rechazar_nulos(self, ("nombre_completo", "telefono"))
+        return self
+
+
+class VehiculoActualizar(BaseModel):
+    tipo_vehiculo: TipoVehiculo | None = None
+    patente: Patente | None = None
+    capacidad_carga_kg: CapacidadCargaKg | None = None
+
+    @model_validator(mode="after")
+    def _normalizar(self):
+        _rechazar_nulos(self, ("tipo_vehiculo", "patente", "capacidad_carga_kg"))
+        if self.patente is not None:
+            # El formulario de registro ya las manda en mayúsculas.
+            self.patente = self.patente.upper()
+        return self
+
+
+class CambiarContrasena(BaseModel):
+    contrasena_actual: str
+    contrasena_nueva: Contrasena
+    confirmar_contrasena_nueva: str
+
+    @model_validator(mode="after")
+    def validar_coinciden(self):
+        if self.contrasena_nueva != self.confirmar_contrasena_nueva:
+            raise ValueError("Las contraseñas no coinciden.")
+        return self
 
 
 class RegistroChoferIndependiente(DatosPersona, DatosVehiculo):

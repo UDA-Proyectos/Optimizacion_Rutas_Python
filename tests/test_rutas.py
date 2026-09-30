@@ -1,78 +1,24 @@
 from datetime import UTC, datetime
-from itertools import pairwise
 
-import pytest
+from sqlalchemy import select
 
-from tests.conftest import payload_chofer
+from db.modelos import Incidencia, Ruta, TipoIncidencia
+from tests.conftest import (
+    PAYLOAD_CLIENTE_1,
+    PAYLOAD_CLIENTE_2,
+    PAYLOAD_DEPOSITO,
+    armar_chofer_con_lugares,
+    iniciar_ruta_con_paradas,
+    registrar_chofer_independiente,
+)
 
 BASE_RUTAS = "/api/v1/rutas"
 BASE_DEPOSITOS = "/api/v1/depositos"
 BASE_CLIENTES = "/api/v1/clientes"
 
-PAYLOAD_DEPOSITO = {"nombre": "Mi base", "latitud": -32.8908, "longitud": -68.8272}
-
-PAYLOAD_CLIENTE_1 = {
-    "nombre": "Kiosco Don José",
-    "direccion": "San Martín 123, Mendoza",
-    "latitud": -32.8850,
-    "longitud": -68.8200,
-}
-
-PAYLOAD_CLIENTE_2 = {
-    "nombre": "Ferretería Central",
-    "direccion": "Av. San Martín 456, Mendoza",
-    "latitud": -32.8950,
-    "longitud": -68.8350,
-}
-
-
-def _registrar_chofer_independiente(client, email="chofer-ruta@test.com", patente="RT111AA"):
-    return client.post(
-        "/api/v1/auth/registro/chofer-independiente", json=payload_chofer(email, patente=patente)
-    )
-
-
-def _matriz_sintetica(coordenadas):
-    # Distancias/tiempos con parte fraccionaria a propósito — OSRM real
-    # devuelve floats (ej. 4538.5 metros), no enteros. Un valor entero acá
-    # hubiera dejado pasar el bug de int_from_float que rompió esto en vivo.
-    n = len(coordenadas)
-    distancias = [[abs(i - j) * 1000.5 for j in range(n)] for i in range(n)]
-    tiempos = [[abs(i - j) * 60.5 for j in range(n)] for i in range(n)]
-    return {"matriz_distancias_metros": distancias, "matriz_tiempos_segundos": tiempos}
-
-
-@pytest.fixture
-def osrm_falso(monkeypatch):
-    """Reemplaza la llamada real a OSRM por una matriz sintética
-    determinística — evita depender del servidor público en los tests."""
-    monkeypatch.setattr("routing.planificador.obtener_matriz_osrm", _matriz_sintetica)
-
-
-def _geometria_sintetica(coordenadas):
-    # Un tramo por cada par de coordenadas consecutivas, igual que la forma real
-    # de obtener_geometria_osrm (steps=true separa la traza por leg).
-    return [
-        [(origen["latitud"], origen["longitud"]), (destino["latitud"], destino["longitud"])]
-        for origen, destino in pairwise(coordenadas)
-    ]
-
-
-@pytest.fixture
-def osrm_geometria_falsa(monkeypatch):
-    monkeypatch.setattr("api.routes_rutas.obtener_geometria_osrm", _geometria_sintetica)
-
-
-def _armar_chofer_con_lugares(client):
-    _registrar_chofer_independiente(client)
-    client.post(BASE_DEPOSITOS, json=PAYLOAD_DEPOSITO)
-    cliente1 = client.post(BASE_CLIENTES, json=PAYLOAD_CLIENTE_1).json()
-    cliente2 = client.post(BASE_CLIENTES, json=PAYLOAD_CLIENTE_2).json()
-    return cliente1, cliente2
-
 
 def test_optimizar_devuelve_preview_sin_persistir(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
 
     respuesta = client.post(
         f"{BASE_RUTAS}/optimizar",
@@ -93,7 +39,7 @@ def test_optimizar_devuelve_preview_sin_persistir(client, osrm_falso):
 
 
 def test_confirmar_persiste_la_ruta(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
     paradas = {
         "paradas": [
             {"cliente_id": cliente1["id"], "carga_kg": 10},
@@ -116,7 +62,7 @@ def test_confirmar_persiste_la_ruta(client, osrm_falso):
 
 
 def test_no_se_puede_confirmar_dos_rutas_el_mismo_dia(client, osrm_falso):
-    cliente1, _ = _armar_chofer_con_lugares(client)
+    cliente1, _ = armar_chofer_con_lugares(client)
     paradas = {"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 10}]}
 
     assert client.post(f"{BASE_RUTAS}/confirmar", json=paradas).status_code == 201
@@ -125,7 +71,7 @@ def test_no_se_puede_confirmar_dos_rutas_el_mismo_dia(client, osrm_falso):
 
 
 def test_optimizar_sin_deposito_da_400(client, osrm_falso):
-    _registrar_chofer_independiente(client)
+    registrar_chofer_independiente(client)
     cliente = client.post(BASE_CLIENTES, json=PAYLOAD_CLIENTE_1).json()
 
     respuesta = client.post(
@@ -136,12 +82,12 @@ def test_optimizar_sin_deposito_da_400(client, osrm_falso):
 
 
 def test_optimizar_con_cliente_ajeno_da_400(client, osrm_falso):
-    _registrar_chofer_independiente(client, email="dueno@test.com", patente="AA111AA")
+    registrar_chofer_independiente(client, email="dueno@test.com", patente="AA111AA")
     client.post(BASE_DEPOSITOS, json=PAYLOAD_DEPOSITO)
     cliente_ajeno = client.post(BASE_CLIENTES, json=PAYLOAD_CLIENTE_1).json()
     client.cookies.clear()
 
-    _registrar_chofer_independiente(client, email="otro@test.com", patente="BB222BB")
+    registrar_chofer_independiente(client, email="otro@test.com", patente="BB222BB")
     client.post(BASE_DEPOSITOS, json=PAYLOAD_DEPOSITO)
     respuesta = client.post(
         f"{BASE_RUTAS}/optimizar",
@@ -175,14 +121,14 @@ def test_chofer_de_empresa_no_puede_optimizar(client):
 
 
 def test_ruta_activa_sin_ruta_devuelve_null(client):
-    _registrar_chofer_independiente(client)
+    registrar_chofer_independiente(client)
     respuesta = client.get(f"{BASE_RUTAS}/activa")
     assert respuesta.status_code == 200
     assert respuesta.json() is None
 
 
 def test_optimizar_incluye_ahorro_y_explicacion(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
     respuesta = client.post(
         f"{BASE_RUTAS}/optimizar",
         json={
@@ -201,7 +147,7 @@ def test_optimizar_incluye_ahorro_y_explicacion(client, osrm_falso):
 
 
 def test_editar_ruta_reemplaza_la_planificada(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
     original = client.post(
         f"{BASE_RUTAS}/confirmar",
         json={"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 10}]},
@@ -226,7 +172,7 @@ def test_editar_ruta_reemplaza_la_planificada(client, osrm_falso):
 
 
 def test_editar_sin_ruta_da_404(client):
-    _registrar_chofer_independiente(client)
+    registrar_chofer_independiente(client)
     respuesta = client.put(
         f"{BASE_RUTAS}/activa",
         json={"paradas": [{"cliente_id": "00000000-0000-0000-0000-000000000000", "carga_kg": 1}]},
@@ -235,7 +181,7 @@ def test_editar_sin_ruta_da_404(client):
 
 
 def test_eliminar_ruta_activa(client, osrm_falso):
-    cliente1, _ = _armar_chofer_con_lugares(client)
+    cliente1, _ = armar_chofer_con_lugares(client)
     client.post(
         f"{BASE_RUTAS}/confirmar",
         json={"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 10}]},
@@ -247,12 +193,12 @@ def test_eliminar_ruta_activa(client, osrm_falso):
 
 
 def test_iniciar_sin_ruta_da_404(client):
-    _registrar_chofer_independiente(client)
+    registrar_chofer_independiente(client)
     assert client.post(f"{BASE_RUTAS}/activa/iniciar").status_code == 404
 
 
 def test_iniciar_y_completar_paradas_cierra_la_ruta(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
     client.post(
         f"{BASE_RUTAS}/confirmar",
         json={
@@ -289,7 +235,7 @@ def test_iniciar_y_completar_paradas_cierra_la_ruta(client, osrm_falso):
 
 
 def test_no_se_puede_completar_parada_fuera_de_orden(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
     ruta = client.post(
         f"{BASE_RUTAS}/confirmar",
         json={
@@ -307,7 +253,7 @@ def test_no_se_puede_completar_parada_fuera_de_orden(client, osrm_falso):
 
 
 def test_geometria_ruta_activa(client, osrm_falso, osrm_geometria_falsa):
-    cliente1, _ = _armar_chofer_con_lugares(client)
+    cliente1, _ = armar_chofer_con_lugares(client)
     client.post(
         f"{BASE_RUTAS}/confirmar",
         json={"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 10}]},
@@ -322,7 +268,7 @@ def test_geometria_ruta_activa(client, osrm_falso, osrm_geometria_falsa):
 
 
 def test_confirmar_con_ventanas_horarias_calcula_llegada(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
 
     respuesta = client.post(
         f"{BASE_RUTAS}/confirmar",
@@ -357,7 +303,7 @@ def test_confirmar_con_ventanas_horarias_calcula_llegada(client, osrm_falso):
 
 
 def test_ventanas_horarias_sin_completar_todas_da_400(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
 
     respuesta = client.post(
         f"{BASE_RUTAS}/optimizar",
@@ -379,7 +325,7 @@ def test_ventanas_horarias_sin_completar_todas_da_400(client, osrm_falso):
 
 
 def test_unidades_y_distancia_acumulada_persisten(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
 
     respuesta = client.post(
         f"{BASE_RUTAS}/confirmar",
@@ -399,7 +345,7 @@ def test_unidades_y_distancia_acumulada_persisten(client, osrm_falso):
 
 
 def test_historial_lista_rutas_del_rango_con_contadores(client, osrm_falso):
-    cliente1, _ = _armar_chofer_con_lugares(client)
+    cliente1, _ = armar_chofer_con_lugares(client)
 
     client.post(
         f"{BASE_RUTAS}/confirmar",
@@ -424,7 +370,7 @@ def test_historial_lista_rutas_del_rango_con_contadores(client, osrm_falso):
 
 
 def test_historial_de_ruta_ajena_da_404(client, osrm_falso):
-    _registrar_chofer_independiente(client, email="dueno-hist@test.com", patente="HI111HI")
+    registrar_chofer_independiente(client, email="dueno-hist@test.com", patente="HI111HI")
     client.post(BASE_DEPOSITOS, json=PAYLOAD_DEPOSITO)
     cliente = client.post(BASE_CLIENTES, json=PAYLOAD_CLIENTE_1).json()
     ruta = client.post(
@@ -433,13 +379,13 @@ def test_historial_de_ruta_ajena_da_404(client, osrm_falso):
     ).json()
     client.cookies.clear()
 
-    _registrar_chofer_independiente(client, email="otro-hist@test.com", patente="HI222HI")
+    registrar_chofer_independiente(client, email="otro-hist@test.com", patente="HI222HI")
     respuesta = client.get(f"{BASE_RUTAS}/historial/{ruta['id']}")
     assert respuesta.status_code == 404
 
 
 def test_optimizar_excede_capacidad_da_mensaje_especifico(client, osrm_falso):
-    cliente1, cliente2 = _armar_chofer_con_lugares(client)
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
 
     respuesta = client.post(
         f"{BASE_RUTAS}/optimizar",
@@ -454,3 +400,314 @@ def test_optimizar_excede_capacidad_da_mensaje_especifico(client, osrm_falso):
     mensaje = respuesta.json()["detail"].lower()
     assert "capacidad" in mensaje
     assert "600" in mensaje
+
+
+def _por_id(ruta_json):
+    return {p["id"]: p for p in ruta_json["paradas"]}
+
+
+def test_registrar_llegada_persiste_y_es_idempotente(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    primera_id = paradas[0]["id"]
+    assert paradas[0]["hora_real_llegada"] is None
+
+    respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/llegada")
+    assert respuesta.status_code == 200
+    llegada = _por_id(respuesta.json())[primera_id]["hora_real_llegada"]
+    assert llegada is not None
+
+    repetida = client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/llegada")
+    assert repetida.status_code == 200
+    assert _por_id(repetida.json())[primera_id]["hora_real_llegada"] == llegada
+
+    # Sobrevive a recargar: viene del servidor, no del estado local.
+    activa = client.get(f"{BASE_RUTAS}/activa").json()
+    assert _por_id(activa)[primera_id]["hora_real_llegada"] == llegada
+
+
+def test_registrar_llegada_en_parada_que_no_es_la_actual_da_409(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    segunda_id = paradas[1]["id"]
+
+    respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{segunda_id}/llegada")
+    assert respuesta.status_code == 409
+
+    activa = client.get(f"{BASE_RUTAS}/activa").json()
+    assert _por_id(activa)[segunda_id]["hora_real_llegada"] is None
+
+
+def test_registrar_llegada_con_ruta_sin_iniciar_da_409(client, osrm_falso):
+    cliente1, _ = armar_chofer_con_lugares(client)
+    ruta = client.post(
+        f"{BASE_RUTAS}/confirmar",
+        json={"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 5}]},
+    ).json()
+
+    parada_id = ruta["paradas"][0]["id"]
+    assert client.post(f"{BASE_RUTAS}/activa/paradas/{parada_id}/llegada").status_code == 409
+
+
+def test_completar_sin_llegada_previa_completa_la_hora_de_llegada(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    primera_id = paradas[0]["id"]
+
+    respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/completar")
+    parada = _por_id(respuesta.json())[primera_id]
+    assert parada["estado"] == "completada"
+    assert parada["hora_real_llegada"] is not None
+    assert parada["hora_real_salida"] is not None
+
+
+def test_completar_conserva_la_llegada_ya_registrada(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    primera_id = paradas[0]["id"]
+    llegada = _por_id(client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/llegada").json())[
+        primera_id
+    ]["hora_real_llegada"]
+
+    respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/completar")
+    assert _por_id(respuesta.json())[primera_id]["hora_real_llegada"] == llegada
+
+
+def test_fallar_parada_registra_motivo_incidencia_y_avanza(client, db_session, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    primera_id, segunda_id = paradas[0]["id"], paradas[1]["id"]
+
+    respuesta = client.post(
+        f"{BASE_RUTAS}/activa/paradas/{primera_id}/fallar",
+        json={"motivo": "cliente_ausente", "descripcion": "Persiana baja"},
+    )
+    assert respuesta.status_code == 200
+    por_id = _por_id(respuesta.json())
+    assert por_id[primera_id]["estado"] == "fallida"
+    assert por_id[primera_id]["motivo_fallo"] == "cliente_ausente"
+    assert por_id[segunda_id]["estado"] == "en_curso"
+
+    incidencias = db_session.execute(select(Incidencia)).scalars().all()
+    assert len(incidencias) == 1
+    assert incidencias[0].tipo == TipoIncidencia.CLIENTE_AUSENTE
+    assert str(incidencias[0].parada_id) == primera_id
+    assert incidencias[0].descripcion == "Persiana baja"
+
+
+def test_fallar_parada_sin_motivo_da_422(client, db_session, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    primera_id = paradas[0]["id"]
+
+    respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/fallar", json={})
+    assert respuesta.status_code == 422
+
+    activa = client.get(f"{BASE_RUTAS}/activa").json()
+    assert _por_id(activa)[primera_id]["estado"] == "en_curso"
+    assert db_session.execute(select(Incidencia)).scalars().all() == []
+
+
+def test_fallar_con_motivo_invalido_da_422(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    respuesta = client.post(
+        f"{BASE_RUTAS}/activa/paradas/{paradas[0]['id']}/fallar", json={"motivo": "inventado"}
+    )
+    assert respuesta.status_code == 422
+
+
+def test_fallar_con_problema_de_vehiculo_da_422(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    respuesta = client.post(
+        f"{BASE_RUTAS}/activa/paradas/{paradas[0]['id']}/fallar",
+        json={"motivo": "problema_vehiculo"},
+    )
+    assert respuesta.status_code == 422
+
+
+def test_fallar_la_ultima_parada_cierra_la_ruta(client, db_session, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    client.post(f"{BASE_RUTAS}/activa/paradas/{paradas[0]['id']}/completar")
+
+    respuesta = client.post(
+        f"{BASE_RUTAS}/activa/paradas/{paradas[1]['id']}/fallar",
+        json={"motivo": "rechazo_entrega"},
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "completada"
+    assert client.get(f"{BASE_RUTAS}/activa").json() is None
+
+    ruta = db_session.execute(select(Ruta)).scalars().one()
+    assert ruta.hora_fin_real is not None
+    assert len(db_session.execute(select(Incidencia)).scalars().all()) == 1
+
+
+def test_saltear_manda_la_parada_al_final_y_avanza(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client, cantidad=3)
+    primera_id, segunda_id, tercera_id = (p["id"] for p in paradas)
+    client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/llegada")
+
+    respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/saltear")
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    por_id = _por_id(cuerpo)
+
+    assert por_id[primera_id]["estado"] == "pendiente"
+    assert por_id[primera_id]["orden"] == 2
+    assert por_id[segunda_id]["estado"] == "en_curso"
+    assert por_id[tercera_id]["estado"] == "pendiente"
+    # Órdenes contiguos y la respuesta ya viene en ese orden.
+    assert [p["orden"] for p in cuerpo["paradas"]] == [0, 1, 2]
+    # La llegada avisada antes de irse no vale para el próximo intento.
+    assert por_id[primera_id]["hora_real_llegada"] is None
+
+
+def test_parada_salteada_se_visita_al_final_y_cierra_la_ruta(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client, cantidad=3)
+    primera_id, segunda_id, tercera_id = (p["id"] for p in paradas)
+
+    client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/saltear")
+    client.post(f"{BASE_RUTAS}/activa/paradas/{segunda_id}/completar")
+    despues = client.post(f"{BASE_RUTAS}/activa/paradas/{tercera_id}/completar").json()
+
+    assert _por_id(despues)[primera_id]["estado"] == "en_curso"
+    assert despues["estado"] == "en_curso"
+
+    final = client.post(f"{BASE_RUTAS}/activa/paradas/{primera_id}/completar").json()
+    assert final["estado"] == "completada"
+
+
+def test_saltear_la_unica_parada_restante_da_409(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client)
+    client.post(f"{BASE_RUTAS}/activa/paradas/{paradas[0]['id']}/completar")
+
+    respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{paradas[1]['id']}/saltear")
+    assert respuesta.status_code == 409
+
+    activa = client.get(f"{BASE_RUTAS}/activa").json()
+    assert _por_id(activa)[paradas[1]["id"]]["estado"] == "en_curso"
+
+
+def test_saltear_no_cuenta_una_parada_fallida_como_pendiente(client, osrm_falso):
+    paradas = iniciar_ruta_con_paradas(client, cantidad=3)
+    client.post(
+        f"{BASE_RUTAS}/activa/paradas/{paradas[0]['id']}/fallar",
+        json={"motivo": "direccion_incorrecta"},
+    )
+    client.post(f"{BASE_RUTAS}/activa/paradas/{paradas[1]['id']}/completar")
+
+    # Queda solo la tercera: la fallida no es candidata a "otra pendiente".
+    respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{paradas[2]['id']}/saltear")
+    assert respuesta.status_code == 409
+
+
+def _registrar_con_dos_depositos(client):
+    registrar_chofer_independiente(client)
+    primero = client.post(BASE_DEPOSITOS, json=PAYLOAD_DEPOSITO).json()
+    segundo = client.post(
+        BASE_DEPOSITOS, json={"nombre": "Zeta base", "latitud": -32.9000, "longitud": -68.8000}
+    ).json()
+    cliente = client.post(BASE_CLIENTES, json=PAYLOAD_CLIENTE_1).json()
+    return primero, segundo, cliente
+
+
+def test_sin_deposito_elegido_se_usa_el_primero(client, osrm_falso):
+    primero, _, cliente = _registrar_con_dos_depositos(client)
+
+    ruta = client.post(
+        f"{BASE_RUTAS}/confirmar", json={"paradas": [{"cliente_id": cliente["id"], "carga_kg": 5}]}
+    ).json()
+    assert ruta["deposito"]["latitud"] == primero["latitud"]
+    assert ruta["deposito"]["longitud"] == primero["longitud"]
+
+
+def test_deposito_elegido_es_el_punto_de_partida(client, osrm_falso):
+    _, segundo, cliente = _registrar_con_dos_depositos(client)
+
+    ruta = client.post(
+        f"{BASE_RUTAS}/confirmar",
+        json={
+            "paradas": [{"cliente_id": cliente["id"], "carga_kg": 5}],
+            "deposito_id": segundo["id"],
+        },
+    ).json()
+    assert ruta["deposito"]["latitud"] == segundo["latitud"]
+    assert ruta["deposito"]["longitud"] == segundo["longitud"]
+
+
+def test_deposito_ajeno_o_inexistente_da_400(client, osrm_falso):
+    registrar_chofer_independiente(client, email="dueno-dep@test.com", patente="DP111DP")
+    deposito_ajeno = client.post(BASE_DEPOSITOS, json=PAYLOAD_DEPOSITO).json()
+    client.cookies.clear()
+
+    _, _, cliente = _registrar_con_dos_depositos_de_otro(client)
+    for deposito_id in (deposito_ajeno["id"], "00000000-0000-0000-0000-000000000000"):
+        respuesta = client.post(
+            f"{BASE_RUTAS}/optimizar",
+            json={
+                "paradas": [{"cliente_id": cliente["id"], "carga_kg": 5}],
+                "deposito_id": deposito_id,
+            },
+        )
+        assert respuesta.status_code == 400, deposito_id
+        assert "depósito" in respuesta.json()["detail"].lower()
+
+
+def _registrar_con_dos_depositos_de_otro(client):
+    registrar_chofer_independiente(client, email="otro-dep@test.com", patente="DP222DP")
+    primero = client.post(BASE_DEPOSITOS, json=PAYLOAD_DEPOSITO).json()
+    segundo = client.post(
+        BASE_DEPOSITOS, json={"nombre": "Zeta base", "latitud": -32.9000, "longitud": -68.8000}
+    ).json()
+    cliente = client.post(BASE_CLIENTES, json=PAYLOAD_CLIENTE_1).json()
+    return primero, segundo, cliente
+
+
+def test_eta_incluye_el_tiempo_de_servicio_del_lugar(client, osrm_falso):
+    registrar_chofer_independiente(client)
+    client.post(BASE_DEPOSITOS, json=PAYLOAD_DEPOSITO)
+    ids = [
+        client.post(payload_url, json={**payload, "tiempo_servicio_default": 15}).json()["id"]
+        for payload_url, payload in (
+            (BASE_CLIENTES, PAYLOAD_CLIENTE_1),
+            (BASE_CLIENTES, PAYLOAD_CLIENTE_2),
+        )
+    ]
+
+    ruta = client.post(
+        f"{BASE_RUTAS}/confirmar",
+        json={
+            "paradas": [
+                {"cliente_id": i, "carga_kg": 5, "ventana_inicio": 480, "ventana_fin": 900}
+                for i in ids
+            ],
+            "usa_ventanas_horarias": True,
+        },
+    ).json()
+    llegadas = [
+        p["hora_estimada_llegada"] for p in sorted(ruta["paradas"], key=lambda p: p["orden"])
+    ]
+
+    # Entre dos paradas consecutivas hay al menos los 15 min de servicio de la
+    # primera (el traslado sintético entre lugares vecinos es de ~1-2 min).
+    assert llegadas[1] - llegadas[0] >= 15
+
+
+def test_ventana_del_deposito_acota_la_ruta_con_ventanas(client, osrm_falso):
+    registrar_chofer_independiente(client)
+    # El depósito cierra a las 08:01: ninguna parada con ventana 10:00-11:40 es alcanzable.
+    client.post(
+        BASE_DEPOSITOS, json={**PAYLOAD_DEPOSITO, "ventana_inicio": 480, "ventana_fin": 481}
+    )
+    cliente = client.post(BASE_CLIENTES, json=PAYLOAD_CLIENTE_1).json()
+
+    respuesta = client.post(
+        f"{BASE_RUTAS}/optimizar",
+        json={
+            "paradas": [
+                {
+                    "cliente_id": cliente["id"],
+                    "carga_kg": 5,
+                    "ventana_inicio": 600,
+                    "ventana_fin": 700,
+                }
+            ],
+            "usa_ventanas_horarias": True,
+        },
+    )
+    assert respuesta.status_code == 400
+    assert "ventanas horarias" in respuesta.json()["detail"].lower()

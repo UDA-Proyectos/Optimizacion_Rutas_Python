@@ -1,3 +1,5 @@
+from itertools import pairwise
+
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
@@ -96,3 +98,89 @@ def client(db_session):
     with TestClient(app) as cliente_test:
         yield cliente_test
     app.dependency_overrides.clear()
+
+
+# --- Datos y helpers compartidos por los tests que arman rutas -------------
+
+PAYLOAD_DEPOSITO = {"nombre": "Mi base", "latitud": -32.8908, "longitud": -68.8272}
+
+PAYLOAD_CLIENTE_1 = {
+    "nombre": "Kiosco Don José",
+    "direccion": "San Martín 123, Mendoza",
+    "latitud": -32.8850,
+    "longitud": -68.8200,
+}
+
+PAYLOAD_CLIENTE_2 = {
+    "nombre": "Ferretería Central",
+    "direccion": "Av. San Martín 456, Mendoza",
+    "latitud": -32.8950,
+    "longitud": -68.8350,
+}
+
+PAYLOAD_CLIENTE_3 = {
+    "nombre": "Almacén Norte",
+    "direccion": "Belgrano 789, Mendoza",
+    "latitud": -32.8700,
+    "longitud": -68.8400,
+}
+
+
+def registrar_chofer_independiente(client, email="chofer-ruta@test.com", patente="RT111AA"):
+    return client.post(
+        "/api/v1/auth/registro/chofer-independiente", json=payload_chofer(email, patente=patente)
+    )
+
+
+def armar_chofer_con_lugares(client):
+    registrar_chofer_independiente(client)
+    client.post("/api/v1/depositos", json=PAYLOAD_DEPOSITO)
+    cliente1 = client.post("/api/v1/clientes", json=PAYLOAD_CLIENTE_1).json()
+    cliente2 = client.post("/api/v1/clientes", json=PAYLOAD_CLIENTE_2).json()
+    return cliente1, cliente2
+
+
+def iniciar_ruta_con_paradas(client, cantidad=2):
+    """Confirma e inicia una ruta con `cantidad` paradas (2 o 3); devuelve las
+    paradas de la ruta en curso ordenadas por `orden`."""
+    cliente1, cliente2 = armar_chofer_con_lugares(client)
+    clientes = [cliente1, cliente2]
+    if cantidad == 3:
+        clientes.append(client.post("/api/v1/clientes", json=PAYLOAD_CLIENTE_3).json())
+    client.post(
+        "/api/v1/rutas/confirmar",
+        json={"paradas": [{"cliente_id": c["id"], "carga_kg": 5} for c in clientes[:cantidad]]},
+    )
+    ruta = client.post("/api/v1/rutas/activa/iniciar").json()
+    return sorted(ruta["paradas"], key=lambda p: p["orden"])
+
+
+def _matriz_sintetica(coordenadas):
+    # Distancias/tiempos con parte fraccionaria a propósito — OSRM real
+    # devuelve floats (ej. 4538.5 metros), no enteros. Un valor entero acá
+    # hubiera dejado pasar el bug de int_from_float que rompió esto en vivo.
+    n = len(coordenadas)
+    distancias = [[abs(i - j) * 1000.5 for j in range(n)] for i in range(n)]
+    tiempos = [[abs(i - j) * 60.5 for j in range(n)] for i in range(n)]
+    return {"matriz_distancias_metros": distancias, "matriz_tiempos_segundos": tiempos}
+
+
+@pytest.fixture
+def osrm_falso(monkeypatch):
+    """Reemplaza la llamada real a OSRM por una matriz sintética
+    determinística — evita depender del servidor público en los tests."""
+    monkeypatch.setattr("routing.planificador.obtener_matriz_osrm", _matriz_sintetica)
+
+
+def _geometria_sintetica(coordenadas):
+    # Un tramo por cada par de coordenadas consecutivas, igual que la forma real
+    # de obtener_geometria_osrm (steps=true separa la traza por leg).
+    return [
+        [(origen["latitud"], origen["longitud"]), (destino["latitud"], destino["longitud"])]
+        for origen, destino in pairwise(coordenadas)
+    ]
+
+
+@pytest.fixture
+def osrm_geometria_falsa(monkeypatch):
+    monkeypatch.setattr("api.routes_rutas.obtener_geometria_osrm", _geometria_sintetica)

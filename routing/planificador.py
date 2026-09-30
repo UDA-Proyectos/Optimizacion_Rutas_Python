@@ -69,6 +69,7 @@ def planificar_ruta(
     usuario: Usuario,
     selecciones: list[SeleccionParada],
     usa_ventanas_horarias: bool = False,
+    deposito_id: uuid.UUID | None = None,
 ) -> ResultadoPlanificacion:
     """Arma y resuelve el problema (CVRP, o VRPTW si `usa_ventanas_horarias`)
     para los clientes seleccionados por `usuario`, usando su vehículo y
@@ -83,7 +84,14 @@ def planificar_ruta(
     depositos = crud.listar_depositos(db, duenio)
     if not depositos:
         raise ErrorPlanificacion("Todavía no configuraste tu depósito de partida.")
-    deposito = depositos[0]
+    if deposito_id is None:
+        deposito = depositos[0]
+    else:
+        # Solo entre los depósitos activos del propio dueño: uno ajeno o dado
+        # de baja se trata igual que uno inexistente.
+        deposito = next((d for d in depositos if d.id == deposito_id), None)
+        if deposito is None:
+            raise ErrorPlanificacion("El depósito elegido no existe.")
 
     cargas_por_cliente = {s.cliente_id: s for s in selecciones}
     clientes = crud.obtener_clientes_propios(db, list(cargas_por_cliente), duenio)

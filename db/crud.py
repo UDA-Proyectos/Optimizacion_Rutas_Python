@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Protocol
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from db.modelos import (
     Cliente,
@@ -15,10 +15,12 @@ from db.modelos import (
     Empresa,
     EstadoParada,
     EstadoRuta,
+    Incidencia,
     ParadaRuta,
     PlanSuscripcion,
     RolUsuario,
     Ruta,
+    TipoIncidencia,
     TipoProblema,
     TipoVehiculo,
     Usuario,
@@ -50,6 +52,10 @@ class DatosCliente(Protocol):
     latitud: float
     longitud: float
     telefono: str | None
+    demanda_carga_default: int | None
+    tiempo_servicio_default: int
+    ventana_inicio_default: int | None
+    ventana_fin_default: int | None
 
 
 class DatosDeposito(Protocol):
@@ -84,6 +90,23 @@ def obtener_usuario_por_email(db: Session, email: str) -> Usuario | None:
 
 def obtener_vehiculo_por_patente(db: Session, patente: str) -> Vehiculo | None:
     return db.execute(select(Vehiculo).where(Vehiculo.patente == patente)).scalar_one_or_none()
+
+
+def actualizar_usuario(db: Session, usuario: Usuario, cambios: dict[str, object]) -> Usuario:
+    for campo, valor in cambios.items():
+        setattr(usuario, campo, valor)
+    return guardar(db, usuario)
+
+
+def actualizar_vehiculo(db: Session, vehiculo: Vehiculo, cambios: dict[str, object]) -> Vehiculo:
+    for campo, valor in cambios.items():
+        setattr(vehiculo, campo, valor)
+    return guardar(db, vehiculo)
+
+
+def cambiar_contrasena(db: Session, usuario: Usuario, contrasena_hash: str) -> None:
+    usuario.contrasena_hash = contrasena_hash
+    guardar(db, usuario)
 
 
 def crear_empresa(db: Session, nombre: str) -> Empresa:
@@ -211,6 +234,10 @@ def crear_cliente(db: Session, datos: DatosCliente, duenio: Duenio) -> Cliente:
             latitud=datos.latitud,
             longitud=datos.longitud,
             telefono=datos.telefono,
+            demanda_carga_default=datos.demanda_carga_default,
+            tiempo_servicio_default=datos.tiempo_servicio_default,
+            ventana_inicio_default=datos.ventana_inicio_default,
+            ventana_fin_default=datos.ventana_fin_default,
         ),
     )
 
@@ -381,6 +408,9 @@ def listar_rutas_historial(
             select(Ruta)
             .where(Ruta.chofer_id == chofer_id, Ruta.fecha.between(desde, hasta))
             .order_by(Ruta.fecha.desc(), Ruta.fecha_creacion.desc())
+            # Paradas e incidencias de todo el mes en una consulta cada una, en
+            # vez de una por ruta al armar cada RutaHistorialItem.
+            .options(selectinload(Ruta.paradas), selectinload(Ruta.incidencias))
         ).scalars()
     )
 
@@ -408,22 +438,133 @@ def iniciar_ruta(db: Session, ruta: Ruta) -> Ruta:
     return ruta
 
 
-def completar_parada(db: Session, ruta: Ruta, parada: ParadaRuta) -> Ruta:
-    """Marca `parada` como visitada y avanza la siguiente (por `orden`) a
-    en_curso. Si no queda ninguna pendiente, cierra la ruta entera."""
-    parada.estado = EstadoParada.COMPLETADA
-    parada.hora_real_salida = datetime.now(UTC)
-    guardar(db, parada)
-
-    siguientes = [p for p in ruta.paradas if p.orden > parada.orden]
-    if siguientes:
-        siguiente = min(siguientes, key=lambda p: p.orden)
+def _avanzar_ruta(db: Session, ruta: Ruta) -> None:
+    """Pasa a en_curso la próxima parada pendiente (por `orden`), o cierra la
+    ruta si no queda ninguna — criterio por estado y no por `orden`, porque
+    saltear una parada la manda al final y rompe esa relación."""
+    pendientes = [p for p in ruta.paradas if p.estado == EstadoParada.PENDIENTE]
+    if pendientes:
+        siguiente = min(pendientes, key=lambda p: p.orden)
         siguiente.estado = EstadoParada.EN_CURSO
         guardar(db, siguiente)
     else:
         ruta.estado = EstadoRuta.COMPLETADA
         ruta.hora_fin_real = datetime.now(UTC)
         guardar(db, ruta)
+
+
+def registrar_llegada(db: Session, parada: ParadaRuta) -> ParadaRuta:
+    """Idempotente: una segunda llamada conserva la hora original."""
+    if parada.hora_real_llegada is None:
+        parada.hora_real_llegada = datetime.now(UTC)
+        guardar(db, parada)
+    return parada
+
+
+def completar_parada(db: Session, ruta: Ruta, parada: ParadaRuta) -> Ruta:
+    """Marca `parada` como visitada y avanza a la siguiente pendiente. Si no
+    queda ninguna, cierra la ruta entera."""
+    ahora = datetime.now(UTC)
+    parada.estado = EstadoParada.COMPLETADA
+    parada.hora_real_salida = ahora
+    if parada.hora_real_llegada is None:
+        parada.hora_real_llegada = ahora
+    guardar(db, parada)
+
+    _avanzar_ruta(db, ruta)
+    return ruta
+
+
+def crear_incidencia(
+    db: Session,
+    *,
+    ruta: Ruta,
+    reportado_por: Usuario,
+    tipo: TipoIncidencia,
+    descripcion: str | None = None,
+    parada: ParadaRuta | None = None,
+) -> Incidencia:
+    return guardar(
+        db,
+        Incidencia(
+            ruta_id=ruta.id,
+            parada_id=parada.id if parada else None,
+            tipo=tipo,
+            descripcion=descripcion,
+            reportado_por_usuario_id=reportado_por.id,
+        ),
+    )
+
+
+def listar_incidencias_de_chofer(
+    db: Session, chofer_id: uuid.UUID, limite: int = 100, desplazamiento: int = 0
+) -> list[Incidencia]:
+    return list(
+        db.execute(
+            select(Incidencia)
+            .where(Incidencia.reportado_por_usuario_id == chofer_id)
+            .order_by(Incidencia.fecha_hora.desc())
+            .limit(limite)
+            .offset(desplazamiento)
+        ).scalars()
+    )
+
+
+def fallar_parada(
+    db: Session,
+    ruta: Ruta,
+    parada: ParadaRuta,
+    reportado_por: Usuario,
+    motivo: TipoIncidencia,
+    descripcion: str | None,
+) -> Ruta:
+    """Marca `parada` como no entregada, deja registrada la incidencia y
+    avanza igual que al completar."""
+    parada.estado = EstadoParada.FALLIDA
+    parada.motivo_fallo = motivo
+    guardar(db, parada)
+    crear_incidencia(
+        db,
+        ruta=ruta,
+        reportado_por=reportado_por,
+        tipo=motivo,
+        descripcion=descripcion,
+        parada=parada,
+    )
+
+    _avanzar_ruta(db, ruta)
+    return ruta
+
+
+def hay_otras_paradas_pendientes(ruta: Ruta, parada: ParadaRuta) -> bool:
+    return any(p.estado == EstadoParada.PENDIENTE and p.id != parada.id for p in ruta.paradas)
+
+
+def saltear_parada(db: Session, ruta: Ruta, parada: ParadaRuta) -> Ruta:
+    """Manda `parada` al final del recorrido pendiente y pasa a la siguiente.
+    Quien llama ya verificó que quedan otras pendientes."""
+    parada.estado = EstadoParada.PENDIENTE
+    parada.veces_salteada += 1
+    # Si había avisado que llegó y se va sin entregar, esa llegada ya no vale
+    # para el próximo intento.
+    parada.hora_real_llegada = None
+
+    ordenadas = sorted(ruta.paradas, key=lambda p: p.orden)
+    nuevo_orden = [p for p in ordenadas if p.id != parada.id] + [parada]
+
+    # UniqueConstraint(ruta_id, orden): SQLAlchemy emite un UPDATE por fila, así
+    # que renumerar directo puede chocar a mitad de camino. Primero se pasan
+    # todas a órdenes negativos (libres), después a los definitivos.
+    for indice, p in enumerate(nuevo_orden):
+        p.orden = -(indice + 1)
+    db.flush()
+    for indice, p in enumerate(nuevo_orden):
+        p.orden = indice
+    db.flush()
+    # El relationship `paradas` quedó en el orden viejo en memoria.
+    db.refresh(ruta)
+
+    _avanzar_ruta(db, ruta)
     return ruta
 
 

@@ -63,3 +63,39 @@ def test_deposito_no_visible_ni_editable_para_otro_chofer(client):
 
     respuesta = client.patch(f"{BASE}/{creado['id']}", json={"nombre": "Intento ajeno"})
     assert respuesta.status_code == 404
+
+
+def test_deposito_con_ventana_horaria(client):
+    _registrar_chofer_independiente(client)
+
+    creado = client.post(
+        BASE, json={**PAYLOAD_DEPOSITO, "ventana_inicio": 480, "ventana_fin": 1080}
+    ).json()
+    assert creado["ventana_inicio"] == 480
+    assert creado["ventana_fin"] == 1080
+
+
+def test_deposito_con_ventana_invalida_da_422(client):
+    _registrar_chofer_independiente(client)
+
+    for inicio, fin in [(1080, 480), (480, 480), (480, None), (None, 480)]:
+        respuesta = client.post(
+            BASE, json={**PAYLOAD_DEPOSITO, "ventana_inicio": inicio, "ventana_fin": fin}
+        )
+        assert respuesta.status_code == 422, (inicio, fin)
+
+
+def test_actualizar_deposito_con_ventana_invalida_da_422(client):
+    _registrar_chofer_independiente(client)
+    creado = client.post(BASE, json=PAYLOAD_DEPOSITO).json()
+
+    respuesta = client.patch(
+        f"{BASE}/{creado['id']}", json={"ventana_inicio": 900, "ventana_fin": 600}
+    )
+    assert respuesta.status_code == 422
+
+    correcto = client.patch(
+        f"{BASE}/{creado['id']}", json={"ventana_inicio": 480, "ventana_fin": 600}
+    )
+    assert correcto.status_code == 200
+    assert correcto.json()["ventana_fin"] == 600

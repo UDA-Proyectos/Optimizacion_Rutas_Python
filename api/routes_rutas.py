@@ -8,7 +8,7 @@ from api import schemas_rutas as schemas
 from api.dependencies import get_db, obtener_usuario_actual, requiere_chofer_independiente
 from api.schemas_auth import MensajeResponse
 from db import crud
-from db.modelos import EstadoParada, EstadoRuta, Ruta, TipoProblema, Usuario
+from db.modelos import EstadoParada, EstadoRuta, ParadaRuta, Ruta, TipoProblema, Usuario
 from routing.planificador import (
     ErrorPlanificacion,
     ResultadoPlanificacion,
@@ -40,7 +40,11 @@ def _selecciones(datos: schemas.OptimizarRutaRequest) -> list[SeleccionParada]:
 def _planificar(db: Session, usuario: Usuario, datos: schemas.OptimizarRutaRequest):
     try:
         return planificar_ruta(
-            db, usuario, _selecciones(datos), usa_ventanas_horarias=datos.usa_ventanas_horarias
+            db,
+            usuario,
+            _selecciones(datos),
+            usa_ventanas_horarias=datos.usa_ventanas_horarias,
+            deposito_id=datos.deposito_id,
         )
     except ErrorPlanificacion as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -158,12 +162,11 @@ def iniciar_ruta_activa(
     return crud.iniciar_ruta(db, ruta)
 
 
-@router.post("/activa/paradas/{parada_id}/completar", response_model=schemas.RutaPublica)
-def completar_parada_activa(
-    parada_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(requiere_chofer_independiente),
-):
+def _parada_en_curso_o_error(
+    db: Session, usuario: Usuario, parada_id: uuid.UUID
+) -> tuple[Ruta, ParadaRuta]:
+    """Validación común de las acciones sobre la parada actual: ruta en curso,
+    parada de esa ruta y que sea justo la próxima a visitar."""
     ruta = _ruta_activa_o_404(db, usuario)
     if ruta.estado != EstadoRuta.EN_CURSO:
         raise HTTPException(status_code=409, detail="Iniciá la ruta antes de marcar paradas.")
@@ -172,7 +175,54 @@ def completar_parada_activa(
         raise HTTPException(status_code=404, detail="Esa parada no pertenece a tu ruta de hoy.")
     if parada.estado != EstadoParada.EN_CURSO:
         raise HTTPException(status_code=409, detail="Esa no es la próxima parada a visitar.")
+    return ruta, parada
+
+
+@router.post("/activa/paradas/{parada_id}/llegada", response_model=schemas.RutaPublica)
+def registrar_llegada_activa(
+    parada_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_chofer_independiente),
+):
+    ruta, parada = _parada_en_curso_o_error(db, usuario, parada_id)
+    crud.registrar_llegada(db, parada)
+    return ruta
+
+
+@router.post("/activa/paradas/{parada_id}/completar", response_model=schemas.RutaPublica)
+def completar_parada_activa(
+    parada_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_chofer_independiente),
+):
+    ruta, parada = _parada_en_curso_o_error(db, usuario, parada_id)
     return crud.completar_parada(db, ruta, parada)
+
+
+@router.post("/activa/paradas/{parada_id}/fallar", response_model=schemas.RutaPublica)
+def fallar_parada_activa(
+    parada_id: uuid.UUID,
+    datos: schemas.FallarParadaRequest,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_chofer_independiente),
+):
+    ruta, parada = _parada_en_curso_o_error(db, usuario, parada_id)
+    return crud.fallar_parada(db, ruta, parada, usuario, datos.motivo, datos.descripcion)
+
+
+@router.post("/activa/paradas/{parada_id}/saltear", response_model=schemas.RutaPublica)
+def saltear_parada_activa(
+    parada_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_chofer_independiente),
+):
+    ruta, parada = _parada_en_curso_o_error(db, usuario, parada_id)
+    if not crud.hay_otras_paradas_pendientes(ruta, parada):
+        raise HTTPException(
+            status_code=409,
+            detail="Es la única parada que queda: entregala o marcala como no entregada.",
+        )
+    return crud.saltear_parada(db, ruta, parada)
 
 
 @router.get("/activa", response_model=schemas.RutaPublica | None)
@@ -221,6 +271,10 @@ def historial_rutas(
             paradas_completadas=sum(
                 1 for parada in ruta.paradas if parada.estado == EstadoParada.COMPLETADA
             ),
+            paradas_fallidas=sum(
+                1 for parada in ruta.paradas if parada.estado == EstadoParada.FALLIDA
+            ),
+            incidencias_total=ruta.incidencias_total,
         )
         for ruta in rutas
     ]

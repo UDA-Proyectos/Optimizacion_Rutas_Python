@@ -1,11 +1,17 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api import schemas_auth as schemas
-from api.dependencies import get_db, obtener_usuario_actual, requiere_admin
+from api.dependencies import (
+    get_db,
+    obtener_usuario_actual,
+    requiere_admin,
+    requiere_chofer_independiente,
+)
 from core.config import settings
 from core.seguridad import crear_token_acceso, hashear_contrasena, verificar_contrasena
 from db import crud
@@ -141,6 +147,67 @@ def cerrar_sesion(response: Response):
 @router.get("/me", response_model=schemas.UsuarioPublico)
 def usuario_actual(usuario: Usuario = Depends(obtener_usuario_actual)):
     return usuario
+
+
+@router.patch("/me", response_model=schemas.UsuarioPublico)
+def actualizar_perfil(
+    datos: schemas.PerfilActualizar,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(obtener_usuario_actual),
+):
+    return crud.actualizar_usuario(db, usuario, datos.model_dump(exclude_unset=True))
+
+
+@router.patch("/me/vehiculo", response_model=schemas.UsuarioPublico)
+def actualizar_vehiculo_propio(
+    datos: schemas.VehiculoActualizar,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_chofer_independiente),
+):
+    vehiculo = usuario.vehiculo
+    if vehiculo is None:
+        raise HTTPException(status_code=404, detail="No tenés un vehículo registrado.")
+    cambios = datos.model_dump(exclude_unset=True)
+
+    # Capacidad y patente entran en la planificación de la ruta de hoy: cambiar
+    # alguna con una ruta planificada o en curso la dejaría inconsistente.
+    cambia_capacidad = cambios.get("capacidad_carga_kg", vehiculo.capacidad_carga_kg) != (
+        vehiculo.capacidad_carga_kg
+    )
+    cambia_patente = cambios.get("patente", vehiculo.patente) != vehiculo.patente
+    if (cambia_capacidad or cambia_patente) and crud.obtener_ruta_activa(
+        db, usuario.id, datetime.now(UTC).date()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Terminá o cancelá tu ruta de hoy antes de cambiar la patente o la capacidad.",
+        )
+
+    if cambia_patente:
+        existente = crud.obtener_vehiculo_por_patente(db, cambios["patente"])
+        if existente is not None and existente.id != vehiculo.id:
+            raise HTTPException(status_code=409, detail=MENSAJE_PATENTE_DUPLICADA)
+
+    try:
+        crud.actualizar_vehiculo(db, vehiculo, cambios)
+    except IntegrityError:
+        # Carrera entre el chequeo de arriba y el UPDATE: la unique constraint
+        # de Vehiculo.patente decide.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=MENSAJE_PATENTE_DUPLICADA)
+    return usuario
+
+
+@router.post("/cambiar-contrasena", response_model=schemas.MensajeResponse)
+def cambiar_contrasena(
+    datos: schemas.CambiarContrasena,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(obtener_usuario_actual),
+):
+    if not verificar_contrasena(datos.contrasena_actual, usuario.contrasena_hash):
+        raise HTTPException(status_code=400, detail="La contraseña actual es incorrecta.")
+    crud.cambiar_contrasena(db, usuario, hashear_contrasena(datos.contrasena_nueva))
+    return schemas.MensajeResponse(mensaje="Contraseña actualizada.")
 
 
 @router.post("/invitaciones", response_model=schemas.CodigoInvitacionPublico, status_code=201)
