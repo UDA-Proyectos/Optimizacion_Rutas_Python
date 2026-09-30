@@ -13,11 +13,15 @@ from db.modelos import (
     Deposito,
     Duenio,
     Empresa,
+    EntregaPendiente,
+    EstadoEntregaPendiente,
+    EstadoIncidencia,
     EstadoParada,
     EstadoRuta,
     Incidencia,
     ParadaRuta,
     PlanSuscripcion,
+    ResolucionIncidencia,
     RolUsuario,
     Ruta,
     TipoIncidencia,
@@ -424,6 +428,9 @@ def obtener_ruta_historial(db: Session, chofer_id: uuid.UUID, ruta_id: uuid.UUID
 def cancelar_ruta(db: Session, ruta: Ruta) -> None:
     ruta.estado = EstadoRuta.CANCELADA
     guardar(db, ruta)
+    # Las entregas reprogramadas que esta ruta había incluido vuelven a estar
+    # pendientes: si no, cancelar la ruta las haría desaparecer.
+    _liberar_entregas_de_ruta(db, ruta.id)
 
 
 def iniciar_ruta(db: Session, ruta: Ruta) -> Ruta:
@@ -497,17 +504,130 @@ def crear_incidencia(
 
 
 def listar_incidencias_de_chofer(
-    db: Session, chofer_id: uuid.UUID, limite: int = 100, desplazamiento: int = 0
+    db: Session,
+    chofer_id: uuid.UUID,
+    limite: int = 100,
+    desplazamiento: int = 0,
+    estado: EstadoIncidencia | None = None,
 ) -> list[Incidencia]:
+    consulta = select(Incidencia).where(Incidencia.reportado_por_usuario_id == chofer_id)
+    if estado is not None:
+        consulta = consulta.where(Incidencia.estado == estado)
     return list(
         db.execute(
-            select(Incidencia)
-            .where(Incidencia.reportado_por_usuario_id == chofer_id)
-            .order_by(Incidencia.fecha_hora.desc())
-            .limit(limite)
-            .offset(desplazamiento)
+            consulta.order_by(Incidencia.fecha_hora.desc()).limit(limite).offset(desplazamiento)
         ).scalars()
     )
+
+
+def obtener_incidencia_propia(
+    db: Session, incidencia_id: uuid.UUID, chofer_id: uuid.UUID
+) -> Incidencia | None:
+    return db.execute(
+        select(Incidencia).where(
+            Incidencia.id == incidencia_id, Incidencia.reportado_por_usuario_id == chofer_id
+        )
+    ).scalar_one_or_none()
+
+
+def incidencia_es_reprogramable(db: Session, incidencia: Incidencia) -> bool:
+    """Solo la de una parada fallida que todavía no se reprogramó."""
+    parada = incidencia.parada
+    return (
+        incidencia.estado == EstadoIncidencia.PENDIENTE
+        and parada is not None
+        and parada.estado == EstadoParada.FALLIDA
+        and obtener_entrega_de_parada(db, parada.id) is None
+    )
+
+
+def obtener_entrega_de_parada(db: Session, parada_id: uuid.UUID) -> EntregaPendiente | None:
+    return db.execute(
+        select(EntregaPendiente).where(EntregaPendiente.parada_origen_id == parada_id)
+    ).scalar_one_or_none()
+
+
+def _resolver(db: Session, incidencia: Incidencia, resolucion: ResolucionIncidencia) -> None:
+    incidencia.estado = EstadoIncidencia.RESUELTA
+    incidencia.resolucion = resolucion
+    incidencia.fecha_resolucion = datetime.now(UTC)
+    guardar(db, incidencia)
+
+
+def reprogramar_entrega(
+    db: Session, usuario: Usuario, parada: ParadaRuta, incidencia: Incidencia
+) -> EntregaPendiente:
+    """Guarda la entrega de una parada fallida para la próxima ruta (con un
+    snapshot de lo que había que entregar) y resuelve la incidencia."""
+    entrega = guardar(
+        db,
+        EntregaPendiente(
+            usuario_id=usuario.id,
+            cliente_id=parada.cliente_id,
+            parada_origen_id=parada.id,
+            incidencia_id=incidencia.id,
+            carga_kg=parada.demanda_carga_snapshot,
+            unidades=parada.unidades_snapshot,
+            ventana_inicio=parada.ventana_inicio_snapshot,
+            ventana_fin=parada.ventana_fin_snapshot,
+        ),
+    )
+    _resolver(db, incidencia, ResolucionIncidencia.REPROGRAMADA)
+    return entrega
+
+
+def cerrar_incidencia(db: Session, incidencia: Incidencia) -> Incidencia:
+    _resolver(db, incidencia, ResolucionIncidencia.CERRADA)
+    return incidencia
+
+
+def listar_entregas_pendientes(db: Session, usuario_id: uuid.UUID) -> list[EntregaPendiente]:
+    """Las del chofer todavía sin cumplir, de lugares que siguen en su libreta."""
+    return list(
+        db.execute(
+            select(EntregaPendiente)
+            .join(Cliente, Cliente.id == EntregaPendiente.cliente_id)
+            .where(
+                EntregaPendiente.usuario_id == usuario_id,
+                EntregaPendiente.estado == EstadoEntregaPendiente.PENDIENTE,
+                Cliente.activo.is_(True),
+            )
+            .order_by(EntregaPendiente.fecha_creacion)
+        ).scalars()
+    )
+
+
+def marcar_entregas_incluidas(
+    db: Session, usuario_id: uuid.UUID, ruta: Ruta, cliente_ids: list[uuid.UUID]
+) -> None:
+    """Da por cumplidas las entregas pendientes de los lugares que la ruta
+    confirmada contiene."""
+    pendientes = db.execute(
+        select(EntregaPendiente).where(
+            EntregaPendiente.usuario_id == usuario_id,
+            EntregaPendiente.estado == EstadoEntregaPendiente.PENDIENTE,
+            EntregaPendiente.cliente_id.in_(cliente_ids),
+        )
+    ).scalars()
+    for entrega in pendientes:
+        entrega.estado = EstadoEntregaPendiente.INCLUIDA
+        entrega.ruta_id = ruta.id
+        entrega.fecha_inclusion = datetime.now(UTC)
+        guardar(db, entrega)
+
+
+def _liberar_entregas_de_ruta(db: Session, ruta_id: uuid.UUID) -> None:
+    incluidas = db.execute(
+        select(EntregaPendiente).where(
+            EntregaPendiente.ruta_id == ruta_id,
+            EntregaPendiente.estado == EstadoEntregaPendiente.INCLUIDA,
+        )
+    ).scalars()
+    for entrega in incluidas:
+        entrega.estado = EstadoEntregaPendiente.PENDIENTE
+        entrega.ruta_id = None
+        entrega.fecha_inclusion = None
+        guardar(db, entrega)
 
 
 def fallar_parada(
@@ -517,13 +637,15 @@ def fallar_parada(
     reportado_por: Usuario,
     motivo: TipoIncidencia,
     descripcion: str | None,
+    reprogramar: bool = False,
 ) -> Ruta:
-    """Marca `parada` como no entregada, deja registrada la incidencia y
-    avanza igual que al completar."""
+    """Marca `parada` como no entregada, deja registrada la incidencia (y, si se
+    pidió, la entrega reprogramada para la próxima ruta) y avanza igual que al
+    completar."""
     parada.estado = EstadoParada.FALLIDA
     parada.motivo_fallo = motivo
     guardar(db, parada)
-    crear_incidencia(
+    incidencia = crear_incidencia(
         db,
         ruta=ruta,
         reportado_por=reportado_por,
@@ -531,6 +653,8 @@ def fallar_parada(
         descripcion=descripcion,
         parada=parada,
     )
+    if reprogramar:
+        reprogramar_entrega(db, reportado_por, parada, incidencia)
 
     _avanzar_ruta(db, ruta)
     return ruta

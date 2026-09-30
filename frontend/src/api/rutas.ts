@@ -51,10 +51,11 @@ export function completarParada(paradaId: string) {
   });
 }
 
-export function fallarParada(paradaId: string, motivo: MotivoFalloParada) {
+/** `reprogramar`: dejar la entrega guardada para la próxima ruta en el mismo paso. */
+export function fallarParada(paradaId: string, motivo: MotivoFalloParada, reprogramar = false) {
   return fetchApi<RutaPublica>(`${BASE}/activa/paradas/${paradaId}/fallar`, {
     method: "POST",
-    body: JSON.stringify({ motivo }),
+    body: JSON.stringify({ motivo, reprogramar }),
   });
 }
 

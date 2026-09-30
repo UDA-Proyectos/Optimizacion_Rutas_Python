@@ -63,11 +63,15 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
       .catch(() => {});
   }, [seccion, ruta]);
 
-  function manejarIncidenciaReportada() {
-    setReportando(false);
+  function recargarIncidencias() {
     listarIncidencias()
       .then(setIncidencias)
       .catch(() => {});
+  }
+
+  function manejarIncidenciaReportada() {
+    setReportando(false);
+    recargarIncidencias();
   }
 
   function irAEditarRuta() {
@@ -98,6 +102,7 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
     ? origenNavegacionParaParadaActual(ruta.deposito, ruta.paradas, gps.ubicacion)
     : null;
   const clientePorId = new Map(clientes.map((c) => [c.id, c] as const));
+  const incidenciasPendientes = incidencias.filter((i) => i.estado === "pendiente").length;
 
   const subtitulo =
     seccion === "ruta"
@@ -111,7 +116,9 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
           : seccion === "incidencias"
             ? incidencias.length === 0
               ? "Sin incidencias registradas"
-              : `${incidencias.length} incidencia${incidencias.length > 1 ? "s" : ""} reportada${incidencias.length > 1 ? "s" : ""}`
+              : incidenciasPendientes === 0
+                ? "No tenés incidencias pendientes"
+                : `${incidenciasPendientes} incidencia${incidenciasPendientes > 1 ? "s" : ""} pendiente${incidenciasPendientes > 1 ? "s" : ""}`
             : seccion === "cuenta"
               ? usuario.email
               : undefined;
@@ -156,7 +163,13 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
         </div>
 
         <nav className="hidden min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-3 lg:flex">
-          <ItemsNav seccion={seccion} ruta={ruta} clientes={clientes} onSeleccionar={setSeccion} />
+          <ItemsNav
+            seccion={seccion}
+            ruta={ruta}
+            clientes={clientes}
+            incidenciasPendientes={incidenciasPendientes}
+            onSeleccionar={setSeccion}
+          />
         </nav>
       </aside>
 
@@ -196,6 +209,7 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
                 seccion={seccion}
                 ruta={ruta}
                 clientes={clientes}
+                incidenciasPendientes={incidenciasPendientes}
                 onSeleccionar={(s) => {
                   setSeccion(s);
                   setMenuAbierto(false);
@@ -320,7 +334,11 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
 
           {seccion === "incidencias" && (
             <div className="p-4 lg:p-6">
-              <PanelIncidencias incidencias={incidencias} />
+              <PanelIncidencias
+                incidencias={incidencias}
+                sinConexion={sinConexion}
+                onActualizar={recargarIncidencias}
+              />
             </div>
           )}
 

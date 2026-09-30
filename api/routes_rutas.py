@@ -80,7 +80,7 @@ def _preview(resultado: ResultadoPlanificacion) -> schemas.RutaPreview:
 def _crear_ruta_desde_resultado(
     db: Session, usuario: Usuario, resultado: ResultadoPlanificacion
 ) -> Ruta:
-    return crud.crear_ruta(
+    ruta = crud.crear_ruta(
         db,
         chofer=usuario,
         vehiculo=resultado.vehiculo,
@@ -92,6 +92,12 @@ def _crear_ruta_desde_resultado(
         hora_fin_estimada_min=resultado.hora_fin_estimada_min,
         paradas=resultado.paradas,
     )
+    # Las entregas reprogramadas de los lugares que esta ruta visita quedan
+    # cumplidas (y vuelven a pendientes si la ruta se cancela o se edita sin ellos).
+    crud.marcar_entregas_incluidas(
+        db, usuario.id, ruta, [parada.cliente.id for parada in resultado.paradas]
+    )
+    return ruta
 
 
 def _ruta_activa_o_404(db: Session, usuario: Usuario) -> Ruta:
@@ -207,7 +213,9 @@ def fallar_parada_activa(
     usuario: Usuario = Depends(requiere_chofer_independiente),
 ):
     ruta, parada = _parada_en_curso_o_error(db, usuario, parada_id)
-    return crud.fallar_parada(db, ruta, parada, usuario, datos.motivo, datos.descripcion)
+    return crud.fallar_parada(
+        db, ruta, parada, usuario, datos.motivo, datos.descripcion, datos.reprogramar
+    )
 
 
 @router.post("/activa/paradas/{parada_id}/saltear", response_model=schemas.RutaPublica)

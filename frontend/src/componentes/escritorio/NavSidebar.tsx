@@ -19,11 +19,13 @@ export function ItemsNav({
   seccion,
   ruta,
   clientes,
+  incidenciasPendientes,
   onSeleccionar,
 }: {
   seccion: Seccion;
   ruta: RutaPublica | null;
   clientes: ClientePublico[];
+  incidenciasPendientes: number;
   onSeleccionar: (seccion: Seccion) => void;
 }) {
   return (
@@ -66,6 +68,7 @@ export function ItemsNav({
         onClick={() => onSeleccionar("incidencias")}
         icono={<IconoIncidencias />}
         etiqueta="Incidencias"
+        badge={incidenciasPendientes > 0 ? String(incidenciasPendientes) : undefined}
       />
 
       <p className="px-2.5 pt-4.5 pb-2 text-[9.5px] font-bold tracking-[0.12em] text-white/58 uppercase">

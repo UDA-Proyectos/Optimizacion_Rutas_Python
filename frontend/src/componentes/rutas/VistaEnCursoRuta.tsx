@@ -102,7 +102,7 @@ function OverlayParadaActual({
   sinConexion: boolean;
   gps: EstadoGps;
   onLlegue: () => void;
-  onFallar: (motivo: MotivoFalloParada) => void;
+  onFallar: (motivo: MotivoFalloParada, reprogramar: boolean) => void;
   onSaltear: () => void;
   puedeSaltear: boolean;
   clienteActual: ClientePublico | undefined;
@@ -110,6 +110,8 @@ function OverlayParadaActual({
   // Estado puramente visual (el selector abierto/cerrado). Se reinicia solo al
   // cambiar de parada porque el padre monta este componente con `key`.
   const [eligiendoMotivo, setEligiendoMotivo] = useState(false);
+  // Segundo paso: con el motivo ya elegido, qué hacer con la entrega.
+  const [motivoElegido, setMotivoElegido] = useState<MotivoFalloParada | null>(null);
   const arribado = paradaActual.hora_real_llegada != null;
   const bloqueado = enviando || sinConexion;
 
@@ -199,7 +201,7 @@ function OverlayParadaActual({
           </p>
         )}
 
-        {eligiendoMotivo && (
+        {eligiendoMotivo && !motivoElegido && (
           <div className="mt-2.5">
             <div className="mb-1.5 text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase">
               ¿Por qué no pudiste entregar?
@@ -210,12 +212,51 @@ function OverlayParadaActual({
                   key={motivo}
                   type="button"
                   disabled={bloqueado}
-                  onClick={() => onFallar(motivo)}
+                  onClick={() => setMotivoElegido(motivo)}
                   className="h-8 rounded-lg border border-borde-input bg-blanco px-2.5 text-[11.5px] font-semibold text-texto-cuerpo disabled:opacity-60"
                 >
                   {ETIQUETA_MOTIVO[motivo]}
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+
+        {motivoElegido && (
+          <div className="mt-2.5">
+            <div className="mb-1.5 text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase">
+              {ETIQUETA_MOTIVO[motivoElegido]} · ¿Qué hacemos con esta entrega?
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                disabled={bloqueado}
+                onClick={() => onFallar(motivoElegido, true)}
+                className="h-9 rounded-lg bg-primario px-3 text-[12px] font-bold text-blanco disabled:opacity-60"
+              >
+                Reprogramar para la próxima ruta
+              </button>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={bloqueado}
+                  onClick={() => onFallar(motivoElegido, false)}
+                  className="h-9 flex-1 rounded-lg border border-borde-input bg-blanco px-2 text-[12px] font-semibold text-texto-cuerpo disabled:opacity-60"
+                >
+                  Decidir después
+                </button>
+                <button
+                  type="button"
+                  disabled={bloqueado}
+                  onClick={() => setMotivoElegido(null)}
+                  className="h-9 rounded-lg px-3 text-[12px] font-semibold text-texto-mutado disabled:opacity-60"
+                >
+                  Volver
+                </button>
+              </div>
+              <p className="text-[10.5px] text-texto-mutado">
+                Si decidís después, la ves en Incidencias y la podés reprogramar desde ahí.
+              </p>
             </div>
           </div>
         )}
@@ -352,9 +393,12 @@ export function VistaEnCursoRuta({
     await ejecutar(() => completarParada(paradaActual.id), "No se pudo marcar la parada.");
   }
 
-  async function manejarFallar(motivo: MotivoFalloParada) {
+  async function manejarFallar(motivo: MotivoFalloParada, reprogramar: boolean) {
     if (!paradaActual) return;
-    await ejecutar(() => fallarParada(paradaActual.id, motivo), "No se pudo registrar el problema.");
+    await ejecutar(
+      () => fallarParada(paradaActual.id, motivo, reprogramar),
+      "No se pudo registrar el problema.",
+    );
   }
 
   async function manejarSaltear() {

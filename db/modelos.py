@@ -69,6 +69,21 @@ class TipoIncidencia(str, enum.Enum):
     OTRO = "otro"
 
 
+class EstadoIncidencia(str, enum.Enum):
+    PENDIENTE = "pendiente"
+    RESUELTA = "resuelta"
+
+
+class ResolucionIncidencia(str, enum.Enum):
+    REPROGRAMADA = "reprogramada"
+    CERRADA = "cerrada"
+
+
+class EstadoEntregaPendiente(str, enum.Enum):
+    PENDIENTE = "pendiente"
+    INCLUIDA = "incluida"
+
+
 class SuscripcionMixin:
     """Campos de plan compartidos por Empresa y Usuario (chofer independiente paga su propio plan)."""
 
@@ -468,9 +483,71 @@ class Incidencia(Base):
         UUID(as_uuid=True), ForeignKey("usuarios.id"), nullable=False
     )
     fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Seguimiento: nace pendiente y el chofer la resuelve (reprogramando la
+    # entrega o cerrándola sin más acción).
+    estado: Mapped[EstadoIncidencia] = mapped_column(
+        Enum(EstadoIncidencia, name="estado_incidencia", native_enum=False),
+        nullable=False,
+        default=EstadoIncidencia.PENDIENTE,
+    )
+    resolucion: Mapped[ResolucionIncidencia | None] = mapped_column(
+        Enum(ResolucionIncidencia, name="resolucion_incidencia", native_enum=False),
+        nullable=True,
+    )
+    fecha_resolucion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     ruta: Mapped["Ruta"] = relationship(back_populates="incidencias", foreign_keys=[ruta_id])
     parada: Mapped["ParadaRuta | None"] = relationship(
         back_populates="incidencias", foreign_keys=[parada_id]
     )
     reportado_por: Mapped["Usuario"] = relationship(foreign_keys=[reportado_por_usuario_id])
+
+
+class EntregaPendiente(Base):
+    """Entrega no realizada que el chofer reprogramó para su próxima ruta.
+
+    Es un compromiso a futuro con ciclo de vida propio (pendiente -> incluida),
+    separado de la ParadaRuta de origen, que es el historial de ese día y no se
+    modifica. Guarda un snapshot de lo que había que entregar."""
+
+    __tablename__ = "entregas_pendientes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    usuario_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("usuarios.id"), nullable=False
+    )
+    cliente_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clientes.id"), nullable=False
+    )
+    # Única: una parada fallida se reprograma una sola vez.
+    parada_origen_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("paradas_ruta.id"), unique=True, nullable=False
+    )
+    incidencia_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("incidencias.id"), nullable=True
+    )
+
+    carga_kg: Mapped[int] = mapped_column(Integer, nullable=False)
+    unidades: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ventana_inicio: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ventana_fin: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    estado: Mapped[EstadoEntregaPendiente] = mapped_column(
+        Enum(EstadoEntregaPendiente, name="estado_entrega_pendiente", native_enum=False),
+        nullable=False,
+        default=EstadoEntregaPendiente.PENDIENTE,
+    )
+    fecha_creacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    fecha_inclusion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Ruta que la incluyó: si esa ruta se cancela, la entrega vuelve a pendiente.
+    ruta_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("rutas.id"), nullable=True
+    )
+
+    cliente: Mapped["Cliente"] = relationship(foreign_keys=[cliente_id])
+    parada_origen: Mapped["ParadaRuta"] = relationship(foreign_keys=[parada_origen_id])

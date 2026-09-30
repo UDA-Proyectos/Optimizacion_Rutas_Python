@@ -41,6 +41,8 @@ class OptimizarRutaRequest(BaseModel):
 class FallarParadaRequest(BaseModel):
     motivo: TipoIncidencia
     descripcion: str | None = Field(None, max_length=500)
+    # Dejar la entrega reprogramada para la próxima ruta en el mismo paso.
+    reprogramar: bool = False
 
     @field_validator("motivo")
     @classmethod

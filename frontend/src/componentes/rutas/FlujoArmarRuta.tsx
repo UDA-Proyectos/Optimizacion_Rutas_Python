@@ -2,10 +2,12 @@ import type { InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 
 import { listarDepositos } from "../../api/depositos";
+import { listarEntregasPendientes } from "../../api/entregasPendientes";
 import { confirmarRuta, editarRuta, obtenerRutaActiva, optimizarRuta } from "../../api/rutas";
 import { useEnvioFormulario } from "../../hooks/useEnvioFormulario";
 import type { ClientePublico } from "../../tipos/cliente";
 import type { DepositoPublico } from "../../tipos/deposito";
+import type { EntregaPendientePublica } from "../../tipos/entregaPendiente";
 import type { OptimizarRutaRequest, RutaPreview } from "../../tipos/ruta";
 import { hhMmAMinutos, minutosAHhMm } from "../../utilidades/horario";
 import { FormularioDeposito } from "../formularios/FormularioDeposito";
@@ -66,6 +68,17 @@ function datosHabituales(cliente: ClientePublico): DatosParada {
   };
 }
 
+/** Los datos de una entrega reprogramada son los de esa entrega puntual, así que
+ * pisan a los habituales del lugar. */
+function datosDeEntrega(entrega: EntregaPendientePublica): DatosParada {
+  return {
+    carga_kg: entrega.carga_kg,
+    unidades: entrega.unidades,
+    ventana_inicio: entrega.ventana_inicio,
+    ventana_fin: entrega.ventana_fin,
+  };
+}
+
 const CLASE_INPUT_CHICO =
   "h-9 w-[68px] shrink-0 rounded-md border border-borde-input bg-blanco px-2 text-right font-mono text-[13px] text-texto-fuerte outline-none transition-[border-color,box-shadow] duration-150 focus:border-primario focus:shadow-[0_0_0_3px_rgba(124,58,237,0.15)] focus-visible:outline-none";
 
@@ -99,6 +112,8 @@ export function FlujoArmarRuta({
   const [usaVentanasHorarias, setUsaVentanasHorarias] = useState(false);
   const [preview, setPreview] = useState<RutaPreview | null>(null);
   const [depositos, setDepositos] = useState<DepositoPublico[]>([]);
+  // cliente_id -> entrega reprogramada pendiente de ese lugar.
+  const [reprogramadas, setReprogramadas] = useState<Record<string, EntregaPendientePublica>>({});
   // "" = sin elegir: el backend usa el primer depósito.
   const [depositoId, setDepositoId] = useState("");
   const { error, enviando, enviar } = useEnvioFormulario();
@@ -138,6 +153,24 @@ export function FlujoArmarRuta({
       setDepositos(listaDepositos);
       setVista(listaDepositos.length > 0 ? "seleccion" : "deposito");
     });
+    // Las entregas reprogramadas se ofrecen ya marcadas y con sus datos; lo que
+    // el chofer ya eligió (ej. "usar de nuevo") no se pisa. Sin conexión o ante
+    // un error se sigue sin ellas: armar la ruta no depende de esto.
+    listarEntregasPendientes()
+      .then((entregas) => {
+        setReprogramadas(Object.fromEntries(entregas.map((e) => [e.cliente_id, e])));
+        const idsDeLugares = new Set(clientes.map((c) => c.id));
+        setSeleccion((actual) => {
+          const siguiente = { ...actual };
+          for (const entrega of entregas) {
+            if (idsDeLugares.has(entrega.cliente_id) && !(entrega.cliente_id in siguiente)) {
+              siguiente[entrega.cliente_id] = datosDeEntrega(entrega);
+            }
+          }
+          return siguiente;
+        });
+      })
+      .catch(() => {});
     // seleccionInicial es un valor de una sola vez al montar (viene de "usar
     // de nuevo" en el historial) — no hace falta reaccionar a que cambie.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -147,7 +180,10 @@ export function FlujoArmarRuta({
     setSeleccion((actual) => {
       const siguiente = { ...actual };
       if (marcado) {
-        siguiente[cliente.id] = actual[cliente.id] ?? datosHabituales(cliente);
+        const reprogramada = reprogramadas[cliente.id];
+        siguiente[cliente.id] =
+          actual[cliente.id] ??
+          (reprogramada ? datosDeEntrega(reprogramada) : datosHabituales(cliente));
       } else {
         delete siguiente[cliente.id];
       }
@@ -259,6 +295,14 @@ export function FlujoArmarRuta({
       <p className="text-[12.5px] text-texto-mutado">
         Elegí los lugares que visitás hoy y cuánto llevás a cada uno.
       </p>
+      {Object.keys(reprogramadas).length > 0 && (
+        <p className="rounded-md border border-primario/30 bg-primario/10 px-3 py-2.5 text-[12.5px] text-[#6428CC]">
+          Tenés {Object.keys(reprogramadas).length} entrega
+          {Object.keys(reprogramadas).length > 1 ? "s" : ""} reprogramada
+          {Object.keys(reprogramadas).length > 1 ? "s" : ""}: ya las marcamos por vos. Podés
+          desmarcarlas si hoy no las llevás; siguen pendientes.
+        </p>
+      )}
       <label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-blanco px-4 py-3 shadow-sm">
         <input
           type="checkbox"
@@ -288,6 +332,11 @@ export function FlujoArmarRuta({
               key={cliente.id}
               nombre={cliente.nombre}
               direccion={cliente.direccion}
+              detalle={
+                reprogramadas[cliente.id]
+                  ? `Reprogramada · no se pudo entregar el ${reprogramadas[cliente.id].fecha_origen}`
+                  : undefined
+              }
               seleccionable={{
                 marcado,
                 onCambiar: (valor) => alternarSeleccion(cliente, valor),
