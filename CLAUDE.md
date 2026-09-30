@@ -67,7 +67,8 @@ api/
   schemas_clientes.py / routes_clientes.py     # CRUD de Cliente ("lugares" guardados) — ver §11
   schemas_depositos.py / routes_depositos.py   # CRUD de Deposito — ver §11
   schemas_rutas.py / routes_rutas.py           # optimizar/confirmar/activa/paradas/historial — ver §11
-  schemas_incidencias.py / routes_incidencias.py   # reporte y listado de incidencias — ver §11
+  schemas_incidencias.py / routes_incidencias.py   # reporte, listado, filtro por estado y resolución — ver §11
+  schemas_entregas_pendientes.py / routes_entregas_pendientes.py   # entregas reprogramadas — ver §11
   schemas_geocoding.py / routes_geocoding.py   # proxy de geocoding (Nominatim): inverso y búsqueda — ver §11
   dependencies.py                # get_db, obtener_usuario_actual, requiere_admin, requiere_chofer_independiente
 routing/
@@ -97,7 +98,8 @@ tests/
                                  # payload_chofer(), y helpers/fixtures compartidos para armar choferes, lugares y
                                  # rutas (osrm_falso, armar_chofer_con_lugares, iniciar_ruta_con_paradas, ...)
   test_auth.py / test_perfil.py / test_clientes.py / test_depositos.py / test_rutas.py / test_resumen.py /
-  test_incidencias.py / test_geocoding.py / test_optimizar_vrp.py / test_solver.py / test_osrm_client.py
+  test_incidencias.py / test_entregas_pendientes.py / test_geocoding.py / test_optimizar_vrp.py /
+  test_solver.py / test_osrm_client.py
                                  # los que arman rutas mockean OSRM con una matriz sintética con floats — no
                                  # dependen del servidor OSRM real
 frontend/                       # PWA React+Vite+TS — ver §10, §11
@@ -252,7 +254,7 @@ Un chofer sin empresa arma, confirma, ejecuta y cierra su propia ruta del día, 
 - `GET /historial` y `GET /historial/{id}` — rutas de un rango de fechas y su detalle.
 - `RutaPublica.resumen` (solo si `completada`): duración real, paradas completadas/fallidas/salteadas, carga entregada, incidencias y, con ventanas, ventanas cumplidas. La distancia es la *planificada*.
 
-**Incidencias** (`POST/GET /api/v1/incidencias`): el chofer reporta una incidencia (general de la ruta o sobre una parada) solo con una ruta en curso; el listado incluye las que se crean solas al fallar una parada.
+**Incidencias y entregas reprogramadas** (`/api/v1/incidencias`, `/api/v1/entregas-pendientes`): el chofer reporta una incidencia (general de la ruta o sobre una parada) solo con una ruta en curso; el listado (filtrable con `?estado=pendiente|resuelta`) incluye las que se crean solas al fallar una parada. Toda incidencia nace `pendiente` y se resuelve con `POST /incidencias/{id}/resolver`: `reprogramada` (solo si viene de una parada fallida que todavía no se reprogramó) o `cerrada` (sin más acción). Reprogramar crea una `EntregaPendiente` (snapshot de lugar, carga, bultos y ventana; única por `parada_origen_id`) que `FlujoArmarRuta` ofrece **ya marcada** al armar la próxima ruta, rotulada "Reprogramada". Al confirmar o editar una ruta que contiene ese lugar pasa a `incluida` (con `ruta_id`); si esa ruta se cancela o se edita sin el lugar, vuelve a `pendiente` (`crud.cancelar_ruta`). Al marcar "No pude entregar" el frontend ofrece, tras el motivo, "Reprogramar para la próxima ruta" o "Decidir después" (`fallar` acepta `reprogramar`); desde "Incidencias" se puede hacer luego. Las incidencias anteriores al seguimiento quedaron resueltas/cerradas por la migración. Todavía no hay "retira el cliente en el depósito", cancelar la entrega, notas ni reabrir.
 
 **Mapa de ruta activa** (`MapaRutaActiva.tsx`): traza violeta fina para el resto de la ruta y verde para el tramo en curso, un pin por parada coloreado por `estado` (gris pendiente, verde en curso —más grande y pulsante—, verde completada, rojo fallida), y —solo si el chofer lo activó— un punto azul con su posición. "Abrir navegación"/"Ir con Maps" abre `google.com/maps/dir` con coordenadas reales (sin API key ni billing); usa como origen la posición del dispositivo si está activa, y si no el depósito o la parada anterior.
 
