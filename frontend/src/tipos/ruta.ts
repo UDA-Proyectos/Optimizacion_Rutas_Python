@@ -27,6 +27,10 @@ export interface OptimizarRutaRequest {
   usa_ventanas_horarias: boolean;
   /** null/omitido: el primer depósito del chofer. */
   deposito_id?: string | null;
+  /** Día (YYYY-MM-DD, calendario del chofer) de la ruta; omitido: hoy. */
+  fecha?: string | null;
+  /** Para distinguir varias rutas del mismo día. */
+  nombre?: string | null;
 }
 
 export interface ParadaPreview {
@@ -103,6 +107,7 @@ export interface ResumenRutaDatos {
 export interface RutaPublica {
   id: string;
   fecha: string;
+  nombre: string | null;
   estado: EstadoRuta;
   tipo_problema: TipoProblema;
   distancia_total_m: number | null;
@@ -123,6 +128,7 @@ export interface RutaPublica {
 export interface RutaHistorialItem {
   id: string;
   fecha: string;
+  nombre: string | null;
   estado: EstadoRuta;
   tipo_problema: TipoProblema;
   distancia_total_m: number | null;

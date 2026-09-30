@@ -5,7 +5,9 @@ from api.schemas_rutas import calcular_resumen
 from db.modelos import EstadoParada
 from tests.conftest import (
     armar_chofer_con_lugares,
+    cancelar_unica_ruta,
     iniciar_ruta_con_paradas,
+    iniciar_unica_ruta,
 )
 
 BASE_RUTAS = "/api/v1/rutas"
@@ -108,7 +110,7 @@ def test_ruta_no_terminada_no_tiene_resumen(client, osrm_falso):
     ).json()
     assert planificada["resumen"] is None
 
-    en_curso = client.post(f"{BASE_RUTAS}/activa/iniciar").json()
+    en_curso = iniciar_unica_ruta(client).json()
     assert en_curso["resumen"] is None
     assert client.get(f"{BASE_RUTAS}/activa").json()["resumen"] is None
 
@@ -126,7 +128,7 @@ def test_ruta_con_ventanas_horarias_informa_ventanas_cumplidas(client, osrm_fals
             "usa_ventanas_horarias": True,
         },
     )
-    ruta = client.post(f"{BASE_RUTAS}/activa/iniciar").json()
+    ruta = iniciar_unica_ruta(client).json()
     for parada in sorted(ruta["paradas"], key=lambda p: p["orden"]):
         ruta = client.post(f"{BASE_RUTAS}/activa/paradas/{parada['id']}/completar").json()
 
@@ -162,7 +164,7 @@ def test_ruta_cancelada_no_tiene_resumen(client, osrm_falso):
     client.post(
         f"{BASE_RUTAS}/confirmar", json={"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 5}]}
     )
-    client.delete(f"{BASE_RUTAS}/activa")
+    cancelar_unica_ruta(client)
 
     hoy = datetime.now(UTC).date().isoformat()
     listado = client.get(f"{BASE_RUTAS}/historial", params={"desde": hoy, "hasta": hoy}).json()

@@ -37,7 +37,7 @@ export function ItemsNav({
         activo={seccion === "ruta"}
         onClick={() => onSeleccionar("ruta")}
         icono={<IconoRuta />}
-        etiqueta="Ruta de hoy"
+        etiqueta="Mis rutas"
         badge={ruta ? String(ruta.paradas.length) : undefined}
       />
       <BotonNav

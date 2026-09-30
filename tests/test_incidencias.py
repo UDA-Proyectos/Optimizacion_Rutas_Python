@@ -1,6 +1,7 @@
 from tests.conftest import (
     armar_chofer_con_lugares,
     iniciar_ruta_con_paradas,
+    iniciar_unica_ruta,
     registrar_chofer_independiente,
 )
 
@@ -48,7 +49,7 @@ def test_reportar_incidencia_de_parada_ajena_da_404(client, osrm_falso):
     client.post(
         f"{BASE_RUTAS}/confirmar", json={"paradas": [{"cliente_id": cliente["id"], "carga_kg": 1}]}
     )
-    client.post(f"{BASE_RUTAS}/activa/iniciar")
+    iniciar_unica_ruta(client)
 
     respuesta = client.post(BASE, json={"tipo": "otro", "parada_id": paradas_ajenas[0]["id"]})
     assert respuesta.status_code == 404

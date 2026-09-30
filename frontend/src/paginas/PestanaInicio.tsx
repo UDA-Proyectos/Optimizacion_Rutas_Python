@@ -1,4 +1,5 @@
 import { completarParada, eliminarRuta, iniciarRuta } from "../api/rutas";
+import { hoyLocal } from "../utilidades/fechas";
 import { MapaRutaActiva } from "../componentes/rutas/MapaRutaActiva";
 import { Boton } from "../componentes/ui/Boton";
 import { BannerError } from "../componentes/ui/Formulario";
@@ -159,7 +160,7 @@ export function PestanaInicio({ onEditar, onArmarRuta }: Props) {
           <Boton
             variante="exito"
             cargando={enviando}
-            onClick={() => ejecutar(() => iniciarRuta(), "No se pudo iniciar la ruta.")}
+            onClick={() => ejecutar(() => iniciarRuta(ruta.id, hoyLocal()), "No se pudo iniciar la ruta.")}
           >
             Iniciar ruta
           </Boton>
@@ -171,7 +172,7 @@ export function PestanaInicio({ onEditar, onArmarRuta }: Props) {
               variante="peligro"
               cargando={enviando}
               onClick={() =>
-                ejecutar(() => eliminarRuta().then(() => undefined), "No se pudo eliminar la ruta.")
+                ejecutar(() => eliminarRuta(ruta.id).then(() => undefined), "No se pudo eliminar la ruta.")
               }
             >
               Eliminar
@@ -185,7 +186,7 @@ export function PestanaInicio({ onEditar, onArmarRuta }: Props) {
           variante="peligro"
           cargando={enviando}
           onClick={() =>
-            ejecutar(() => eliminarRuta().then(() => undefined), "No se pudo cancelar la ruta.")
+            ejecutar(() => eliminarRuta(ruta.id).then(() => undefined), "No se pudo cancelar la ruta.")
           }
         >
           Cancelar ruta

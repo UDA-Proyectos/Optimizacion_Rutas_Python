@@ -24,7 +24,7 @@ El sistema SHALL permitir al usuario autenticado modificar su nombre completo y 
 El sistema SHALL permitir al chofer independiente modificar el tipo, la patente y la capacidad de carga de su vehículo, y SHALL garantizar que la patente siga siendo única.
 
 #### Scenario: Cambio de capacidad sin ruta activa
-- **WHEN** el chofer sin ruta planificada ni en curso cambia la capacidad a 300 kg
+- **WHEN** el chofer sin ninguna ruta planificada ni en curso cambia la capacidad a 300 kg
 - **THEN** el vehículo se actualiza y las próximas planificaciones usan 300 kg
 
 #### Scenario: Patente duplicada
@@ -34,6 +34,10 @@ El sistema SHALL permitir al chofer independiente modificar el tipo, la patente 
 #### Scenario: Ruta activa
 - **WHEN** el chofer intenta cambiar la capacidad o la patente con una ruta planificada o en curso
 - **THEN** el sistema responde 409 indicando que debe terminar o cancelar la ruta
+
+#### Scenario: Ruta planificada para otro día
+- **WHEN** el chofer intenta cambiar la capacidad con una ruta planificada para un día futuro
+- **THEN** el sistema responde 409, porque esa ruta se planificó con la capacidad actual
 
 #### Scenario: Capacidad inválida
 - **WHEN** el chofer envía una capacidad menor o igual a 0

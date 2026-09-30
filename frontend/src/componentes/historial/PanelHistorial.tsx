@@ -38,6 +38,7 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
   const [cargandoMes, setCargandoMes] = useState(true);
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
   const [detalle, setDetalle] = useState<RutaPublica | null>(null);
+  const [rutaIdSeleccionada, setRutaIdSeleccionada] = useState<string | null>(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,19 +54,30 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
       .finally(() => setCargandoMes(false));
     setDiaSeleccionado(null);
     setDetalle(null);
+    setRutaIdSeleccionada(null);
   }, [anio, mes]);
 
-  function seleccionarDia(fecha: string) {
-    const item = rutas.find((r) => r.fecha === fecha);
-    if (!item) return;
-    setDiaSeleccionado(fecha);
+  function abrirRuta(id: string) {
+    setRutaIdSeleccionada(id);
     setCargandoDetalle(true);
     setError(null);
-    obtenerRutaHistorial(item.id)
+    obtenerRutaHistorial(id)
       .then(setDetalle)
       .catch(() => setError("No se pudo abrir esa ruta."))
       .finally(() => setCargandoDetalle(false));
   }
+
+  function seleccionarDia(fecha: string) {
+    const primera = rutas.find((r) => r.fecha === fecha);
+    if (!primera) return;
+    setDiaSeleccionado(fecha);
+    abrirRuta(primera.id);
+  }
+
+  // Un día puede tener varias rutas (ahora se pueden planificar dos o más).
+  const rutasDelDiaSeleccionado = diaSeleccionado
+    ? rutas.filter((r) => r.fecha === diaSeleccionado && r.estado !== "cancelada")
+    : [];
 
   function usarDeNuevo() {
     if (!detalle) return;
@@ -120,9 +132,32 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
         ) : (
           detalle && (
             <div className="flex flex-col gap-4">
+              {rutasDelDiaSeleccionado.length > 1 && (
+                <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Rutas del día">
+                  {rutasDelDiaSeleccionado.map((r, indice) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={r.id === rutaIdSeleccionada}
+                      onClick={() => abrirRuta(r.id)}
+                      className={
+                        r.id === rutaIdSeleccionada
+                          ? "rounded-pill bg-primario px-3 py-1.5 text-[12px] font-semibold text-blanco"
+                          : "rounded-pill border border-borde-input bg-blanco px-3 py-1.5 text-[12px] font-semibold text-texto-cuerpo"
+                      }
+                    >
+                      {r.nombre ?? `Ruta ${indice + 1}`} · {ETIQUETA_ESTADO[r.estado]}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div>
                 <div className="mb-1 flex items-center justify-between gap-3">
-                  <p className="text-sm font-bold text-texto-fuerte">{detalle.fecha}</p>
+                  <p className="text-sm font-bold text-texto-fuerte">
+                    {detalle.fecha}
+                    {detalle.nombre && ` · ${detalle.nombre}`}
+                  </p>
                   <span className="rounded-pill bg-fondo px-2.5 py-1 text-[11px] font-semibold text-texto-cuerpo">
                     {ETIQUETA_ESTADO[detalle.estado]}
                   </span>

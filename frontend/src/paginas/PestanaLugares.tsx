@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 
 import { eliminarCliente, listarClientes } from "../api/clientes";
 import { listarDepositos } from "../api/depositos";
-import { obtenerRutaActiva } from "../api/rutas";
 import { FormularioCliente } from "../componentes/formularios/FormularioCliente";
 import { FormularioDeposito } from "../componentes/formularios/FormularioDeposito";
 import { FlujoArmarRuta, type SeleccionInicial } from "../componentes/rutas/FlujoArmarRuta";
@@ -13,6 +12,7 @@ import { TarjetaLugar } from "../componentes/ui/TarjetaLugar";
 import { TextoVacio } from "../componentes/ui/TextoVacio";
 import type { ClientePublico } from "../tipos/cliente";
 import type { DepositoPublico } from "../tipos/deposito";
+import type { RutaPublica } from "../tipos/ruta";
 import { resumenHabituales } from "../utilidades/habituales";
 
 type Vista = "lista" | "formulario" | "ruta" | "deposito";
@@ -22,10 +22,14 @@ type Vista = "lista" | "formulario" | "ruta" | "deposito";
  * dos variantes comparten la misma forma de "acción pendiente que se
  * consume una vez y se limpia" en vez de vivir como dos pares de props
  * paralelos con el mismo ciclo de vida. */
-export type AccionPendiente = { tipo: "editar" } | ({ tipo: "copiar" } & SeleccionInicial);
+export type AccionPendiente =
+  | { tipo: "editar"; ruta: RutaPublica }
+  | { tipo: "nueva"; fecha: string }
+  | ({ tipo: "copiar" } & SeleccionInicial);
 
 interface Props {
-  onRutaConfirmada: () => void;
+  /** Se llama con la ruta guardada, para que "Mis rutas" se ubique en su día. */
+  onRutaConfirmada: (ruta: RutaPublica) => void;
   accionPendiente?: AccionPendiente;
   onAccionPendienteConsumida?: () => void;
 }
@@ -37,10 +41,11 @@ export function PestanaLugares({
 }: Props) {
   const [clientes, setClientes] = useState<ClientePublico[]>([]);
   const [deposito, setDeposito] = useState<DepositoPublico | null>(null);
-  const [tieneRutaHoy, setTieneRutaHoy] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [vista, setVista] = useState<Vista>("lista");
-  const [modoEdicionRuta, setModoEdicionRuta] = useState(false);
+  // Ruta que se está editando (null: armando una nueva) y día con el que arranca una nueva.
+  const [rutaEnEdicion, setRutaEnEdicion] = useState<RutaPublica | null>(null);
+  const [fechaNueva, setFechaNueva] = useState<string | undefined>(undefined);
   // Snapshot local de la selección a copiar, tomado en el mismo efecto que
   // consume accionPendiente — leer accionPendiente de nuevo en el render de
   // "ruta" no alcanza: onAccionPendienteConsumida limpia esa prop en el
@@ -52,14 +57,9 @@ export function PestanaLugares({
   const [clienteEditando, setClienteEditando] = useState<ClientePublico | null>(null);
 
   async function recargar() {
-    const [listaClientes, listaDepositos, ruta] = await Promise.all([
-      listarClientes(),
-      listarDepositos(),
-      obtenerRutaActiva(),
-    ]);
+    const [listaClientes, listaDepositos] = await Promise.all([listarClientes(), listarDepositos()]);
     setClientes(listaClientes);
     setDeposito(listaDepositos[0] ?? null);
-    setTieneRutaHoy(ruta !== null);
   }
 
   useEffect(() => {
@@ -74,11 +74,11 @@ export function PestanaLugares({
     // saltar a "armar ruta" con una acción ya decidida), no un valor
     // derivable en el render.
     if (!accionPendiente) return;
-    const esCopia = accionPendiente.tipo === "copiar";
     // oxlint-disable-next-line react/set-state-in-effect
-    setModoEdicionRuta(!esCopia);
+    setRutaEnEdicion(accionPendiente.tipo === "editar" ? accionPendiente.ruta : null);
+    setFechaNueva(accionPendiente.tipo === "nueva" ? accionPendiente.fecha : undefined);
     setSeleccionInicial(
-      esCopia
+      accionPendiente.tipo === "copiar"
         ? {
             seleccion: accionPendiente.seleccion,
             usaVentanasHorarias: accionPendiente.usaVentanasHorarias,
@@ -100,7 +100,8 @@ export function PestanaLugares({
   }
 
   function abrirArmarRutaNueva() {
-    setModoEdicionRuta(false);
+    setRutaEnEdicion(null);
+    setFechaNueva(undefined);
     setSeleccionInicial(undefined);
     setVista("ruta");
   }
@@ -124,10 +125,10 @@ export function PestanaLugares({
     await recargar();
   }
 
-  async function manejarRutaGuardada() {
+  async function manejarRutaGuardada(ruta: RutaPublica) {
     setVista("lista");
     await recargar();
-    onRutaConfirmada();
+    onRutaConfirmada(ruta);
   }
 
   if (vista === "formulario") {
@@ -144,8 +145,9 @@ export function PestanaLugares({
     return (
       <FlujoArmarRuta
         clientes={clientes}
-        modoEdicion={modoEdicionRuta}
-        seleccionInicial={modoEdicionRuta ? undefined : seleccionInicial}
+        rutaEdicion={rutaEnEdicion}
+        fechaInicial={fechaNueva}
+        seleccionInicial={rutaEnEdicion ? undefined : seleccionInicial}
         onConfirmada={manejarRutaGuardada}
         onCancelar={() => setVista("lista")}
       />
@@ -182,12 +184,8 @@ export function PestanaLugares({
         <Boton variante="secundario" onClick={abrirNuevo}>
           + Agregar lugar
         </Boton>
-        <Boton
-          onClick={abrirArmarRutaNueva}
-          disabled={clientes.length === 0 || tieneRutaHoy}
-          title={tieneRutaHoy ? "Ya tenés una ruta para hoy — editala desde Inicio" : undefined}
-        >
-          {tieneRutaHoy ? "Ya tenés ruta hoy" : "Armar ruta"}
+        <Boton onClick={abrirArmarRutaNueva} disabled={clientes.length === 0}>
+          Armar ruta
         </Boton>
       </div>
 

@@ -24,19 +24,28 @@ export function confirmarRuta(datos: OptimizarRutaRequest) {
   });
 }
 
-export function editarRuta(datos: OptimizarRutaRequest) {
-  return fetchApi<RutaPublica>(`${BASE}/activa`, {
+/** Las rutas de un día (YYYY-MM-DD): planificadas, en curso y completadas. */
+export function obtenerRutasDelDia(fecha: string) {
+  return fetchApi<RutaPublica[]>(`${BASE}?fecha=${fecha}`);
+}
+
+export function editarRuta(rutaId: string, datos: OptimizarRutaRequest) {
+  return fetchApi<RutaPublica>(`${BASE}/${rutaId}`, {
     method: "PUT",
     body: JSON.stringify(datos),
   });
 }
 
-export function eliminarRuta() {
-  return fetchApi<{ mensaje: string }>(`${BASE}/activa`, { method: "DELETE" });
+export function eliminarRuta(rutaId: string) {
+  return fetchApi<{ mensaje: string }>(`${BASE}/${rutaId}`, { method: "DELETE" });
 }
 
-export function iniciarRuta() {
-  return fetchApi<RutaPublica>(`${BASE}/activa/iniciar`, { method: "POST" });
+/** `fechaHoy`: el día local del chofer, porque el servidor no sabe en qué huso está. */
+export function iniciarRuta(rutaId: string, fechaHoy: string) {
+  return fetchApi<RutaPublica>(`${BASE}/${rutaId}/iniciar`, {
+    method: "POST",
+    body: JSON.stringify({ fecha_hoy: fechaHoy }),
+  });
 }
 
 export function registrarLlegada(paradaId: string) {

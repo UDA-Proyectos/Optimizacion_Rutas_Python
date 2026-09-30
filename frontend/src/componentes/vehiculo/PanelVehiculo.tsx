@@ -29,12 +29,10 @@ export function PanelVehiculo({ usuario, ruta }: Props) {
     return (
       <div className="mx-auto max-w-[520px] rounded-2xl border border-borde bg-blanco px-6 py-7 shadow-md">
         <p className="mb-4 text-[15px] font-bold text-texto-fuerte">Editar mi vehículo</p>
-        {ruta && (
-          <p className="mb-4 text-[12px] text-texto-mutado">
-            Tenés una ruta para hoy: hasta que la termines o la canceles no se puede cambiar la
-            patente ni la capacidad.
-          </p>
-        )}
+        <p className="mb-4 text-[12px] text-texto-mutado">
+          Mientras tengas rutas planificadas (de hoy o de otro día) o en curso no se puede cambiar
+          la patente ni la capacidad: terminalas o cancelalas primero.
+        </p>
         <FormularioVehiculo
           vehiculo={vehiculo}
           onGuardado={() => setEditando(false)}

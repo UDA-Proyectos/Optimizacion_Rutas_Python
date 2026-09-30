@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 
 import { listarClientes } from "../../api/clientes";
 import { listarIncidencias } from "../../api/incidencias";
-import { useRutaActiva } from "../../hooks/useRutaActiva";
+import { useRutasDelDia } from "../../hooks/useRutasDelDia";
 import { useUbicacion } from "../../hooks/useUbicacion";
 import { type AccionPendiente, PestanaLugares } from "../../paginas/PestanaLugares";
 import type { UsuarioPublico } from "../../tipos/auth";
 import type { ClientePublico } from "../../tipos/cliente";
 import type { IncidenciaPublica } from "../../tipos/incidencia";
+import type { RutaPublica } from "../../tipos/ruta";
+import { etiquetaDia } from "../../utilidades/fechas";
 import {
   construirUrlGoogleMaps,
   origenNavegacionParaParadaActual,
@@ -24,7 +26,7 @@ import { PanelVehiculo } from "../vehiculo/PanelVehiculo";
 import { ItemsNav, type Seccion } from "./NavSidebar";
 
 const TITULOS: Record<Seccion, string> = {
-  ruta: "Ruta de hoy",
+  ruta: "Mis rutas",
   lugares: "Mis lugares",
   historial: "Historial de rutas",
   vehiculo: "Mi vehículo",
@@ -44,8 +46,22 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
   const [clientes, setClientes] = useState<ClientePublico[]>([]);
   const [incidencias, setIncidencias] = useState<IncidenciaPublica[]>([]);
   const [reportando, setReportando] = useState(false);
-  const { ruta, cargando, enviando, error, sinConexion, copiaGuardadaEn, ejecutar, recargar } =
-    useRutaActiva();
+  const {
+    fecha,
+    moverDia,
+    irAHoy,
+    irARuta,
+    rutas,
+    enCurso,
+    ruta,
+    seleccionarRuta,
+    cargando,
+    enviando,
+    error,
+    sinConexion,
+    copiaGuardadaEn,
+    ejecutar,
+  } = useRutasDelDia();
   const gps = useUbicacion();
 
   useEffect(() => {
@@ -74,22 +90,24 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
     recargarIncidencias();
   }
 
-  function irAEditarRuta() {
-    setAccionPendiente({ tipo: "editar" });
+  function irAEditarRuta(rutaAEditar: RutaPublica) {
+    setAccionPendiente({ tipo: "editar", ruta: rutaAEditar });
     setSeccion("lugares");
   }
 
+  // Arma una ruta nueva para el día que se está viendo.
   function irAArmarRuta() {
+    setAccionPendiente({ tipo: "nueva", fecha });
     setSeccion("lugares");
   }
 
   // "Mis lugares" confirma/edita la ruta sobre su propia instancia de
-  // FlujoArmarRuta, sin pasar por el useRutaActiva() de acá — hay que
-  // refrescarlo a mano al volver, si no "Ruta de hoy" se queda mostrando el
-  // estado vacío de cuando montó este componente.
-  function manejarRutaConfirmada() {
+  // FlujoArmarRuta, sin pasar por el hook de acá — hay que ubicarse en el día
+  // de la ruta guardada y volver a pedirlo, si no "Mis rutas" mostraría lo de
+  // antes de armarla.
+  function manejarRutaConfirmada(guardada: RutaPublica) {
     setSeccion("ruta");
-    recargar();
+    irARuta(guardada.fecha, guardada.id);
   }
 
   function usarRutaDeNuevo(datos: { seleccion: Seleccion; usaVentanasHorarias: boolean }) {
@@ -97,9 +115,9 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
     setSeccion("lugares");
   }
 
-  const paradaActual = ruta?.paradas.find((p) => p.estado === "en_curso");
-  const origenNavegacion = ruta
-    ? origenNavegacionParaParadaActual(ruta.deposito, ruta.paradas, gps.ubicacion)
+  const paradaActual = enCurso?.paradas.find((p) => p.estado === "en_curso");
+  const origenNavegacion = enCurso
+    ? origenNavegacionParaParadaActual(enCurso.deposito, enCurso.paradas, gps.ubicacion)
     : null;
   const clientePorId = new Map(clientes.map((c) => [c.id, c] as const));
   const incidenciasPendientes = incidencias.filter((i) => i.estado === "pendiente").length;
@@ -107,8 +125,8 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
   const subtitulo =
     seccion === "ruta"
       ? ruta
-        ? `${ruta.paradas.length} paradas de hoy`
-        : "Todavía no armaste tu ruta"
+        ? `${etiquetaDia(fecha)} · ${ruta.paradas.length} paradas`
+        : `${etiquetaDia(fecha)} · sin rutas`
       : seccion === "lugares"
         ? `${clientes.length} lugares guardados`
         : seccion === "vehiculo"
@@ -231,24 +249,24 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {ruta?.estado === "en_curso" && (
+            {enCurso && (
               <div className="flex items-center gap-2 rounded-pill border border-[#ABEFC6] bg-exito-tint px-3 py-1.5">
                 <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-exito" />
                 <span className="text-[11.5px] font-semibold text-[#067647]">
                   En ruta
-                  {ruta.hora_inicio_real &&
-                    ` · desde ${new Date(ruta.hora_inicio_real).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                  {enCurso.hora_inicio_real &&
+                    ` · desde ${new Date(enCurso.hora_inicio_real).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
                 </span>
               </div>
             )}
 
             <button
               type="button"
-              disabled={ruta?.estado !== "en_curso" || sinConexion}
+              disabled={!enCurso || sinConexion}
               title={
                 sinConexion
                   ? "Necesitás conexión para reportar una incidencia"
-                  : ruta?.estado === "en_curso"
+                  : enCurso
                     ? undefined
                     : "Iniciá tu ruta para reportar una incidencia"
               }
@@ -295,6 +313,13 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
         >
           {seccion === "ruta" && (
             <RutaDeHoyEscritorio
+              fecha={fecha}
+              rutas={rutas}
+              enCurso={enCurso}
+              onMoverDia={moverDia}
+              onIrAHoy={irAHoy}
+              onSeleccionarRuta={seleccionarRuta}
+              onIrARuta={irARuta}
               ruta={ruta}
               cargando={cargando}
               enviando={enviando}
@@ -328,7 +353,7 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
 
           {seccion === "vehiculo" && (
             <div className="p-4 lg:p-6">
-              <PanelVehiculo usuario={usuario} ruta={ruta} />
+              <PanelVehiculo usuario={usuario} ruta={enCurso} />
             </div>
           )}
 
@@ -346,7 +371,7 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
         </div>
       </div>
 
-      {reportando && ruta && (
+      {reportando && enCurso && (
         <div
           className="fixed inset-0 z-[900] flex items-center justify-center bg-[rgba(16,24,40,0.4)] p-4"
           onClick={() => setReportando(false)}
@@ -357,7 +382,7 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
           >
             <p className="mb-4 text-[15px] font-bold text-texto-fuerte">Reportar incidencia</p>
             <FormularioIncidencia
-              paradas={ruta.paradas}
+              paradas={enCurso.paradas}
               onGuardada={manejarIncidenciaReportada}
               onCancelar={() => setReportando(false)}
             />

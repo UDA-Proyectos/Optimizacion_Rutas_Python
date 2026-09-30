@@ -1,17 +1,19 @@
 import type { InputHTMLAttributes } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { listarDepositos } from "../../api/depositos";
 import { listarEntregasPendientes } from "../../api/entregasPendientes";
-import { confirmarRuta, editarRuta, obtenerRutaActiva, optimizarRuta } from "../../api/rutas";
+import { confirmarRuta, editarRuta, optimizarRuta } from "../../api/rutas";
 import { useEnvioFormulario } from "../../hooks/useEnvioFormulario";
 import type { ClientePublico } from "../../tipos/cliente";
 import type { DepositoPublico } from "../../tipos/deposito";
 import type { EntregaPendientePublica } from "../../tipos/entregaPendiente";
-import type { OptimizarRutaRequest, RutaPreview } from "../../tipos/ruta";
+import type { OptimizarRutaRequest, RutaPreview, RutaPublica } from "../../tipos/ruta";
+import { etiquetaDia, hoyLocal, sumarDias } from "../../utilidades/fechas";
 import { hhMmAMinutos, minutosAHhMm } from "../../utilidades/horario";
 import { FormularioDeposito } from "../formularios/FormularioDeposito";
 import { Boton } from "../ui/Boton";
+import { Campo } from "../ui/Campo";
 import { CampoSelect } from "../ui/CampoSelect";
 import { DatoNumerico } from "../ui/DatoNumerico";
 import { BannerError } from "../ui/Formulario";
@@ -38,13 +40,16 @@ export interface SeleccionInicial {
 
 interface Props {
   clientes: ClientePublico[];
-  /** true: reabre la ruta planificada de hoy con su selección precargada y
+  /** Reabre esta ruta planificada con su selección, fecha y nombre precargados y
    * al confirmar la reemplaza (PUT), en vez de crear una nueva (POST). */
-  modoEdicion?: boolean;
+  rutaEdicion?: RutaPublica | null;
+  /** Día con el que arranca una ruta nueva (YYYY-MM-DD); por defecto hoy. */
+  fechaInicial?: string;
   /** Prellena la selección (ej. "usar de nuevo" desde el historial) sin
    * abrir el modo edición — arma una ruta nueva, no reemplaza ninguna. */
   seleccionInicial?: SeleccionInicial;
-  onConfirmada: () => void;
+  /** Recibe la ruta guardada, para que la pantalla se ubique en su día. */
+  onConfirmada: (ruta: RutaPublica) => void;
   onCancelar: () => void;
 }
 
@@ -102,11 +107,15 @@ function CampoChico({
 
 export function FlujoArmarRuta({
   clientes,
-  modoEdicion = false,
+  rutaEdicion = null,
+  fechaInicial,
   seleccionInicial,
   onConfirmada,
   onCancelar,
 }: Props) {
+  const modoEdicion = rutaEdicion != null;
+  const [fecha, setFecha] = useState(rutaEdicion?.fecha ?? fechaInicial ?? hoyLocal());
+  const [nombre, setNombre] = useState(rutaEdicion?.nombre ?? "");
   const [vista, setVista] = useState<Vista>("cargando");
   const [seleccion, setSeleccion] = useState<Seleccion>({});
   const [usaVentanasHorarias, setUsaVentanasHorarias] = useState(false);
@@ -119,12 +128,13 @@ export function FlujoArmarRuta({
   const { error, enviando, enviar } = useEnvioFormulario();
 
   useEffect(() => {
-    if (modoEdicion) {
-      // Si ya hay una ruta hoy, su depósito ya existe — no hace falta el
+    if (rutaEdicion) {
+      // La ruta ya existe, así que su depósito también — no hace falta el
       // chequeo de depósito, directo a precargar la selección actual.
-      Promise.all([obtenerRutaActiva(), listarDepositos()]).then(([ruta, listaDepositos]) => {
+      listarDepositos().then((listaDepositos) => {
+        const ruta = rutaEdicion;
         const seleccionActual: Seleccion = {};
-        for (const parada of ruta?.paradas ?? []) {
+        for (const parada of ruta.paradas) {
           seleccionActual[parada.cliente_id] = {
             carga_kg: parada.demanda_carga_snapshot,
             unidades: parada.unidades_snapshot,
@@ -133,12 +143,12 @@ export function FlujoArmarRuta({
           };
         }
         setSeleccion(seleccionActual);
-        setUsaVentanasHorarias(ruta?.usa_ventanas_horarias ?? false);
+        setUsaVentanasHorarias(ruta.usa_ventanas_horarias);
         setDepositos(listaDepositos);
         // La ruta solo trae las coordenadas de su depósito: se reconoce por
         // ahí para no reasignarla al primero al guardar los cambios.
         const deDeLaRuta = listaDepositos.find(
-          (d) => d.latitud === ruta?.deposito.latitud && d.longitud === ruta?.deposito.longitud,
+          (d) => d.latitud === ruta.deposito.latitud && d.longitud === ruta.deposito.longitud,
         );
         setDepositoId(deDeLaRuta?.id ?? "");
         setVista("seleccion");
@@ -157,24 +167,40 @@ export function FlujoArmarRuta({
     // el chofer ya eligió (ej. "usar de nuevo") no se pisa. Sin conexión o ante
     // un error se sigue sin ellas: armar la ruta no depende de esto.
     listarEntregasPendientes()
-      .then((entregas) => {
-        setReprogramadas(Object.fromEntries(entregas.map((e) => [e.cliente_id, e])));
-        const idsDeLugares = new Set(clientes.map((c) => c.id));
-        setSeleccion((actual) => {
-          const siguiente = { ...actual };
-          for (const entrega of entregas) {
-            if (idsDeLugares.has(entrega.cliente_id) && !(entrega.cliente_id in siguiente)) {
-              siguiente[entrega.cliente_id] = datosDeEntrega(entrega);
-            }
-          }
-          return siguiente;
-        });
-      })
+      .then((entregas) =>
+        setReprogramadas(Object.fromEntries(entregas.map((e) => [e.cliente_id, e]))),
+      )
       .catch(() => {});
     // seleccionInicial es un valor de una sola vez al montar (viene de "usar
     // de nuevo" en el historial) — no hace falta reaccionar a que cambie.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modoEdicion]);
+
+  // Marca las reprogramadas apenas se tienen las dos cosas: la lista de lugares
+  // (puede llegar después de abrir esta pantalla) y las entregas. Cada una se
+  // precarga una sola vez, para que desmarcarla no la vuelva a marcar.
+  const yaPrecargadas = useRef(new Set<string>());
+  useEffect(() => {
+    if (modoEdicion) return;
+    const idsDeLugares = new Set(clientes.map((c) => c.id));
+    const nuevas = Object.values(reprogramadas).filter(
+      (e) => idsDeLugares.has(e.cliente_id) && !yaPrecargadas.current.has(e.cliente_id),
+    );
+    if (nuevas.length === 0) return;
+    for (const entrega of nuevas) {
+      yaPrecargadas.current.add(entrega.cliente_id);
+    }
+    // oxlint-disable-next-line react/set-state-in-effect
+    setSeleccion((actual) => {
+      const siguiente = { ...actual };
+      for (const entrega of nuevas) {
+        if (!(entrega.cliente_id in siguiente)) {
+          siguiente[entrega.cliente_id] = datosDeEntrega(entrega);
+        }
+      }
+      return siguiente;
+    });
+  }, [clientes, reprogramadas, modoEdicion]);
 
   function alternarSeleccion(cliente: ClientePublico, marcado: boolean) {
     setSeleccion((actual) => {
@@ -211,6 +237,8 @@ export function FlujoArmarRuta({
       })),
       usa_ventanas_horarias: usaVentanasHorarias,
       deposito_id: depositoId || null,
+      fecha,
+      nombre: nombre.trim() || null,
     };
   }
 
@@ -224,9 +252,10 @@ export function FlujoArmarRuta({
 
   function manejarConfirmar() {
     enviar(async () => {
-      const guardar = modoEdicion ? editarRuta : confirmarRuta;
-      await guardar(pedido());
-      onConfirmada();
+      const guardada = rutaEdicion
+        ? await editarRuta(rutaEdicion.id, pedido())
+        : await confirmarRuta(pedido());
+      onConfirmada(guardada);
     }, "No se pudo guardar la ruta.");
   }
 
@@ -242,6 +271,10 @@ export function FlujoArmarRuta({
     return (
       <div className="flex flex-col gap-4">
         <TarjetaContenido>
+          <p className="mb-1 text-[11px] font-semibold tracking-wide text-texto-mutado uppercase">
+            {etiquetaDia(fecha)}
+            {nombre.trim() && ` · ${nombre.trim()}`}
+          </p>
           <p className="mb-1.5 text-sm font-bold text-texto-fuerte">
             {preview.paradas.length} paradas · {(preview.distancia_total_m / 1000).toFixed(1)} km ·{" "}
             {preview.carga_total_kg} kg
@@ -292,15 +325,38 @@ export function FlujoArmarRuta({
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-0 rounded-lg bg-blanco px-4 pt-3 shadow-sm sm:flex-row sm:gap-3">
+        <div className="sm:flex-1">
+          <Campo
+            etiqueta="Día de la ruta"
+            type="date"
+            min={hoyLocal()}
+            max={sumarDias(hoyLocal(), 60)}
+            required
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+          />
+        </div>
+        <div className="sm:flex-1">
+          <Campo
+            etiqueta="Nombre (opcional)"
+            placeholder="Ej: Mañana, Zona norte"
+            maxLength={60}
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+          />
+        </div>
+      </div>
       <p className="text-[12.5px] text-texto-mutado">
-        Elegí los lugares que visitás hoy y cuánto llevás a cada uno.
+        Elegí los lugares que visitás {fecha === hoyLocal() ? "hoy" : etiquetaDia(fecha).toLowerCase()} y
+        cuánto llevás a cada uno.
       </p>
       {Object.keys(reprogramadas).length > 0 && (
         <p className="rounded-md border border-primario/30 bg-primario/10 px-3 py-2.5 text-[12.5px] text-[#6428CC]">
           Tenés {Object.keys(reprogramadas).length} entrega
           {Object.keys(reprogramadas).length > 1 ? "s" : ""} reprogramada
           {Object.keys(reprogramadas).length > 1 ? "s" : ""}: ya las marcamos por vos. Podés
-          desmarcarlas si hoy no las llevás; siguen pendientes.
+          desmarcarlas si no las llevás en esta ruta; siguen pendientes.
         </p>
       )}
       <label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-blanco px-4 py-3 shadow-sm">

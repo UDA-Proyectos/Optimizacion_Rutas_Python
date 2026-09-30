@@ -12,6 +12,7 @@ const NOMBRE_DB = "optiruta";
 const VERSION_DB = 2;
 const ALMACEN = "offline";
 const CLAVE_RUTA = "ruta";
+const CLAVE_RUTAS = "rutas";
 const CLAVE_USUARIO = "usuario";
 
 export interface RutaGuardada {
@@ -81,10 +82,31 @@ export async function leerUsuarioCache(): Promise<UsuarioPublico | null> {
   return (await operar<UsuarioPublico>("readonly", (almacen) => almacen.get(CLAVE_USUARIO))) ?? null;
 }
 
+/** Las rutas de un día, más la ruta en curso (que puede ser de otro día), tal
+ * como se vieron la última vez con conexión. */
+export interface RutasGuardadas {
+  fecha: string;
+  rutas: RutaPublica[];
+  enCurso: RutaPublica | null;
+  guardadaEn: number;
+}
+
+export async function guardarRutasCache(
+  datos: Omit<RutasGuardadas, "guardadaEn">,
+): Promise<void> {
+  const valor: RutasGuardadas = { ...datos, guardadaEn: Date.now() };
+  await operar("readwrite", (almacen) => almacen.put(valor, CLAVE_RUTAS));
+}
+
+export async function leerRutasCache(): Promise<RutasGuardadas | null> {
+  return (await operar<RutasGuardadas>("readonly", (almacen) => almacen.get(CLAVE_RUTAS))) ?? null;
+}
+
 /** Todo lo guardado para uso offline — al cerrar sesión o ante un 401. */
 export async function borrarCacheOffline(): Promise<void> {
   await operar("readwrite", (almacen) => {
     almacen.delete(CLAVE_RUTA);
+    almacen.delete(CLAVE_RUTAS);
     almacen.delete(CLAVE_USUARIO);
   });
 }

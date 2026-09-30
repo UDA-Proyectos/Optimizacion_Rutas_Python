@@ -140,6 +140,29 @@ def armar_chofer_con_lugares(client):
     return cliente1, cliente2
 
 
+# --- Rutas "abiertas" (planificada o en curso) del día: hoy una ruta se inicia,
+# edita o cancela por id, pero casi todos los tests trabajan con una sola.
+
+
+def ruta_unica_abierta(client):
+    rutas = client.get("/api/v1/rutas").json()
+    abiertas = [r for r in rutas if r["estado"] in ("planificada", "en_curso")]
+    assert len(abiertas) == 1, abiertas
+    return abiertas[0]
+
+
+def iniciar_unica_ruta(client):
+    return client.post(f"/api/v1/rutas/{ruta_unica_abierta(client)['id']}/iniciar")
+
+
+def cancelar_unica_ruta(client):
+    return client.delete(f"/api/v1/rutas/{ruta_unica_abierta(client)['id']}")
+
+
+def editar_unica_ruta(client, cuerpo):
+    return client.put(f"/api/v1/rutas/{ruta_unica_abierta(client)['id']}", json=cuerpo)
+
+
 def iniciar_ruta_con_paradas(client, cantidad=2):
     """Confirma e inicia una ruta con `cantidad` paradas (2 o 3); devuelve las
     paradas de la ruta en curso ordenadas por `orden`."""
@@ -151,7 +174,7 @@ def iniciar_ruta_con_paradas(client, cantidad=2):
         "/api/v1/rutas/confirmar",
         json={"paradas": [{"cliente_id": c["id"], "carga_kg": 5} for c in clientes[:cantidad]]},
     )
-    ruta = client.post("/api/v1/rutas/activa/iniciar").json()
+    ruta = iniciar_unica_ruta(client).json()
     return sorted(ruta["paradas"], key=lambda p: p["orden"])
 
 

@@ -339,6 +339,8 @@ class Ruta(Base):
     )
 
     fecha: Mapped[date] = mapped_column(Date, nullable=False)
+    # Para distinguir varias rutas del mismo día ("Mañana", "Zona norte").
+    nombre: Mapped[str | None] = mapped_column(String(60), nullable=True)
     tipo_problema: Mapped[TipoProblema] = mapped_column(
         Enum(TipoProblema, name="tipo_problema", native_enum=False), nullable=False
     )

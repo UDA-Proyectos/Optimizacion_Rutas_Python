@@ -36,6 +36,21 @@ class OptimizarRutaRequest(BaseModel):
     usa_ventanas_horarias: bool = False
     # None = el primer depósito del chofer (comportamiento previo).
     deposito_id: uuid.UUID | None = None
+    # Día (calendario del chofer) para el que se planifica; None = hoy.
+    fecha: date | None = None
+    # Para distinguir varias rutas del mismo día.
+    nombre: str | None = Field(None, max_length=60)
+
+    @field_validator("nombre")
+    @classmethod
+    def _nombre_sin_espacios(cls, nombre: str | None) -> str | None:
+        nombre = nombre.strip() if nombre else None
+        return nombre or None
+
+
+class IniciarRutaRequest(BaseModel):
+    # Día local del chofer: el servidor no sabe en qué huso está.
+    fecha_hoy: date | None = None
 
 
 class FallarParadaRequest(BaseModel):
@@ -201,6 +216,7 @@ class RutaPublica(BaseModel):
 
     id: uuid.UUID
     fecha: date
+    nombre: str | None
     estado: EstadoRuta
     tipo_problema: TipoProblema
     distancia_total_m: int | None
@@ -245,6 +261,7 @@ class RutaHistorialItem(BaseModel):
 
     id: uuid.UUID
     fecha: date
+    nombre: str | None
     estado: EstadoRuta
     tipo_problema: TipoProblema
     distancia_total_m: int | None

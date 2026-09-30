@@ -1,4 +1,6 @@
 from tests.conftest import (
+    cancelar_unica_ruta,
+    editar_unica_ruta,
     iniciar_ruta_con_paradas,
     registrar_chofer_independiente,
 )
@@ -201,7 +203,7 @@ def test_cancelar_la_ruta_devuelve_la_entrega_a_pendiente(client, osrm_falso):
     _ruta_nueva(client, [paradas[0]["cliente_id"]])
     assert client.get(BASE_PENDIENTES).json() == []
 
-    assert client.delete(f"{BASE_RUTAS}/activa").status_code == 200
+    assert cancelar_unica_ruta(client).status_code == 200
     assert [p["cliente_id"] for p in client.get(BASE_PENDIENTES).json()] == [
         paradas[0]["cliente_id"]
     ]
@@ -214,7 +216,7 @@ def test_editar_la_ruta_sin_el_lugar_devuelve_la_entrega_a_pendiente(client, osr
     assert client.get(BASE_PENDIENTES).json() == []
 
     solo_el_otro = [{"cliente_id": paradas[1]["cliente_id"], "carga_kg": 5}]
-    assert client.put(f"{BASE_RUTAS}/activa", json={"paradas": solo_el_otro}).status_code == 200
+    assert editar_unica_ruta(client, {"paradas": solo_el_otro}).status_code == 200
     assert len(client.get(BASE_PENDIENTES).json()) == 1
 
 
@@ -224,7 +226,7 @@ def test_editar_la_ruta_conservando_el_lugar_mantiene_la_entrega_cumplida(client
     _ruta_nueva(client, ambos)
 
     con_ambos = [{"cliente_id": cliente_id, "carga_kg": 7} for cliente_id in ambos]
-    assert client.put(f"{BASE_RUTAS}/activa", json={"paradas": con_ambos}).status_code == 200
+    assert editar_unica_ruta(client, {"paradas": con_ambos}).status_code == 200
     assert client.get(BASE_PENDIENTES).json() == []
 
 

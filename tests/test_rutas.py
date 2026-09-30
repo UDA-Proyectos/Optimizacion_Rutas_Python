@@ -8,7 +8,9 @@ from tests.conftest import (
     PAYLOAD_CLIENTE_2,
     PAYLOAD_DEPOSITO,
     armar_chofer_con_lugares,
+    cancelar_unica_ruta,
     iniciar_ruta_con_paradas,
+    iniciar_unica_ruta,
     registrar_chofer_independiente,
 )
 
@@ -54,20 +56,22 @@ def test_confirmar_persiste_la_ruta(client, osrm_falso):
     assert len(cuerpo["paradas"]) == 2
     assert "capacidad" in cuerpo["explicacion"].lower()
 
-    activa = client.get(f"{BASE_RUTAS}/activa")
-    assert activa.status_code == 200
-    assert activa.json()["id"] == cuerpo["id"]
+    del_dia = client.get(BASE_RUTAS)
+    assert del_dia.status_code == 200
+    assert [r["id"] for r in del_dia.json()] == [cuerpo["id"]]
     # La explicación del preview se persiste, no solo se muestra una vez.
-    assert activa.json()["explicacion"] == cuerpo["explicacion"]
+    assert del_dia.json()[0]["explicacion"] == cuerpo["explicacion"]
 
 
-def test_no_se_puede_confirmar_dos_rutas_el_mismo_dia(client, osrm_falso):
+def test_se_pueden_confirmar_dos_rutas_el_mismo_dia(client, osrm_falso):
     cliente1, _ = armar_chofer_con_lugares(client)
     paradas = {"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 10}]}
 
-    assert client.post(f"{BASE_RUTAS}/confirmar", json=paradas).status_code == 201
-    respuesta = client.post(f"{BASE_RUTAS}/confirmar", json=paradas)
-    assert respuesta.status_code == 409
+    primera = client.post(f"{BASE_RUTAS}/confirmar", json=paradas)
+    segunda = client.post(f"{BASE_RUTAS}/confirmar", json=paradas)
+    assert primera.status_code == 201
+    assert segunda.status_code == 201
+    assert primera.json()["id"] != segunda.json()["id"]
 
 
 def test_optimizar_sin_deposito_da_400(client, osrm_falso):
@@ -154,7 +158,7 @@ def test_editar_ruta_reemplaza_la_planificada(client, osrm_falso):
     ).json()
 
     editada = client.put(
-        f"{BASE_RUTAS}/activa",
+        f"{BASE_RUTAS}/{original['id']}",
         json={
             "paradas": [
                 {"cliente_id": cliente1["id"], "carga_kg": 10},
@@ -167,14 +171,14 @@ def test_editar_ruta_reemplaza_la_planificada(client, osrm_falso):
     assert cuerpo["id"] != original["id"]
     assert len(cuerpo["paradas"]) == 2
 
-    activa = client.get(f"{BASE_RUTAS}/activa").json()
-    assert activa["id"] == cuerpo["id"]
+    del_dia = client.get(BASE_RUTAS).json()
+    assert [r["id"] for r in del_dia] == [cuerpo["id"]]
 
 
 def test_editar_sin_ruta_da_404(client):
     registrar_chofer_independiente(client)
     respuesta = client.put(
-        f"{BASE_RUTAS}/activa",
+        f"{BASE_RUTAS}/00000000-0000-0000-0000-000000000000",
         json={"paradas": [{"cliente_id": "00000000-0000-0000-0000-000000000000", "carga_kg": 1}]},
     )
     assert respuesta.status_code == 404
@@ -187,14 +191,15 @@ def test_eliminar_ruta_activa(client, osrm_falso):
         json={"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 10}]},
     )
 
-    respuesta = client.delete(f"{BASE_RUTAS}/activa")
+    respuesta = cancelar_unica_ruta(client)
     assert respuesta.status_code == 200
-    assert client.get(f"{BASE_RUTAS}/activa").json() is None
+    assert client.get(BASE_RUTAS).json() == []
 
 
 def test_iniciar_sin_ruta_da_404(client):
     registrar_chofer_independiente(client)
-    assert client.post(f"{BASE_RUTAS}/activa/iniciar").status_code == 404
+    respuesta = client.post(f"{BASE_RUTAS}/00000000-0000-0000-0000-000000000000/iniciar")
+    assert respuesta.status_code == 404
 
 
 def test_iniciar_y_completar_paradas_cierra_la_ruta(client, osrm_falso):
@@ -209,7 +214,7 @@ def test_iniciar_y_completar_paradas_cierra_la_ruta(client, osrm_falso):
         },
     )
 
-    iniciada = client.post(f"{BASE_RUTAS}/activa/iniciar")
+    iniciada = iniciar_unica_ruta(client)
     assert iniciada.status_code == 200
     cuerpo = iniciada.json()
     assert cuerpo["estado"] == "en_curso"
@@ -245,7 +250,7 @@ def test_no_se_puede_completar_parada_fuera_de_orden(client, osrm_falso):
             ]
         },
     ).json()
-    client.post(f"{BASE_RUTAS}/activa/iniciar")
+    iniciar_unica_ruta(client)
 
     segunda_id = sorted(ruta["paradas"], key=lambda p: p["orden"])[1]["id"]
     respuesta = client.post(f"{BASE_RUTAS}/activa/paradas/{segunda_id}/completar")
@@ -259,6 +264,9 @@ def test_geometria_ruta_activa(client, osrm_falso, osrm_geometria_falsa):
         json={"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 10}]},
     )
 
+    # El trazo es el de la ruta en curso: una planificada todavía no lo tiene.
+    assert client.get(f"{BASE_RUTAS}/activa/geometria").status_code == 404
+    iniciar_unica_ruta(client)
     respuesta = client.get(f"{BASE_RUTAS}/activa/geometria")
     assert respuesta.status_code == 200
     tramos = respuesta.json()["tramos"]
@@ -338,7 +346,7 @@ def test_unidades_y_distancia_acumulada_persisten(client, osrm_falso):
     )
     assert respuesta.status_code == 201
 
-    activa = client.get(f"{BASE_RUTAS}/activa").json()
+    activa = client.get(BASE_RUTAS).json()[0]
     unidades_por_parada = {p["unidades_snapshot"] for p in activa["paradas"]}
     assert unidades_por_parada == {4, 9}
     assert all(p["distancia_acumulada_m"] > 0 for p in activa["paradas"])
@@ -351,7 +359,7 @@ def test_historial_lista_rutas_del_rango_con_contadores(client, osrm_falso):
         f"{BASE_RUTAS}/confirmar",
         json={"paradas": [{"cliente_id": cliente1["id"], "carga_kg": 10}]},
     )
-    client.post(f"{BASE_RUTAS}/activa/iniciar")
+    iniciar_unica_ruta(client)
     parada_id = client.get(f"{BASE_RUTAS}/activa").json()["paradas"][0]["id"]
     client.post(f"{BASE_RUTAS}/activa/paradas/{parada_id}/completar")
 

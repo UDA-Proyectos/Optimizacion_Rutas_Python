@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -18,6 +18,9 @@ from routing.planificador import (
 from services.osrm_client import obtener_geometria_osrm
 
 router = APIRouter(prefix="/api/v1/rutas", tags=["Rutas"])
+
+# Hasta cuántos días hacia adelante se puede planificar una ruta.
+FECHA_MAXIMA_DIAS = 60
 
 
 def _hoy():
@@ -77,15 +80,39 @@ def _preview(resultado: ResultadoPlanificacion) -> schemas.RutaPreview:
     )
 
 
+def _validar_fecha(fecha: date | None) -> date:
+    """Hoy o un día futuro (hasta FECHA_MAXIMA_DIAS). Un día de tolerancia hacia
+    atrás: la fecha la manda el cliente con su día local y el servidor cuenta en
+    UTC, así que de noche en Argentina "hoy" para el chofer ya es "ayer" acá."""
+    hoy = _hoy()
+    if fecha is None:
+        return hoy
+    if fecha < hoy - timedelta(days=1):
+        raise HTTPException(
+            status_code=400, detail="No se puede planificar una ruta para un día que ya pasó."
+        )
+    if fecha > hoy + timedelta(days=FECHA_MAXIMA_DIAS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Solo se puede planificar hasta {FECHA_MAXIMA_DIAS} días hacia adelante.",
+        )
+    return fecha
+
+
 def _crear_ruta_desde_resultado(
-    db: Session, usuario: Usuario, resultado: ResultadoPlanificacion
+    db: Session,
+    usuario: Usuario,
+    resultado: ResultadoPlanificacion,
+    fecha: date,
+    nombre: str | None,
 ) -> Ruta:
     ruta = crud.crear_ruta(
         db,
         chofer=usuario,
         vehiculo=resultado.vehiculo,
         deposito=resultado.deposito,
-        fecha=_hoy(),
+        fecha=fecha,
+        nombre=nombre,
         tipo_problema=TipoProblema.VRPTW if resultado.usa_ventanas_horarias else TipoProblema.CVRP,
         distancia_total_m=resultado.distancia_total_m,
         explicacion=resultado.explicacion,
@@ -100,10 +127,17 @@ def _crear_ruta_desde_resultado(
     return ruta
 
 
-def _ruta_activa_o_404(db: Session, usuario: Usuario) -> Ruta:
-    ruta = crud.obtener_ruta_activa(db, usuario.id, _hoy())
+def _ruta_en_curso_o_404(db: Session, usuario: Usuario) -> Ruta:
+    ruta = crud.obtener_ruta_en_curso(db, usuario.id)
     if ruta is None:
-        raise HTTPException(status_code=404, detail="No tenés una ruta activa hoy.")
+        raise HTTPException(status_code=404, detail="No tenés una ruta en curso.")
+    return ruta
+
+
+def _ruta_propia_o_404(db: Session, usuario: Usuario, ruta_id: uuid.UUID) -> Ruta:
+    ruta = crud.obtener_ruta_historial(db, usuario.id, ruta_id)
+    if ruta is None:
+        raise HTTPException(status_code=404, detail="No encontramos esa ruta.")
     return ruta
 
 
@@ -123,48 +157,87 @@ def confirmar_ruta(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_chofer_independiente),
 ):
-    if crud.obtener_ruta_activa(db, usuario.id, _hoy()) is not None:
-        raise HTTPException(status_code=409, detail="Ya tenés una ruta activa para hoy.")
+    fecha = _validar_fecha(datos.fecha)
     resultado = _planificar(db, usuario, datos)
-    return _crear_ruta_desde_resultado(db, usuario, resultado)
+    return _crear_ruta_desde_resultado(db, usuario, resultado, fecha, datos.nombre)
 
 
-@router.put("/activa", response_model=schemas.RutaPublica)
-def editar_ruta_activa(
+@router.get("", response_model=list[schemas.RutaPublica])
+def rutas_del_dia(
+    fecha: date | None = Query(None),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(obtener_usuario_actual),
+):
+    """Las rutas de un día (hoy si no se indica), para elegir con cuál trabajar."""
+    return crud.listar_rutas_del_dia(db, usuario.id, fecha or _hoy())
+
+
+@router.put("/{ruta_id}", response_model=schemas.RutaPublica)
+def editar_ruta(
+    ruta_id: uuid.UUID,
     datos: schemas.OptimizarRutaRequest,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_chofer_independiente),
 ):
-    """Reemplaza la ruta planificada de hoy por una nueva selección — la
-    vieja queda cancelada (no se borra) y se crea una ruta nueva, igual que
-    confirmar. Solo antes de iniciarla: una vez en curso no tiene sentido
-    editar el plan del día."""
-    ruta_actual = _ruta_activa_o_404(db, usuario)
+    """Reemplaza una ruta planificada por una nueva selección — la vieja queda
+    cancelada (no se borra) y se crea una ruta nueva, igual que confirmar. La
+    fecha y el nombre se conservan salvo que se indiquen otros. Solo antes de
+    iniciarla: una vez en curso no tiene sentido editar el plan."""
+    ruta_actual = _ruta_propia_o_404(db, usuario, ruta_id)
     if ruta_actual.estado != EstadoRuta.PLANIFICADA:
-        raise HTTPException(status_code=409, detail="Esta ruta ya arrancó, no se puede editar.")
+        raise HTTPException(
+            status_code=409, detail="Esta ruta ya arrancó o terminó, no se puede editar."
+        )
 
+    fecha = _validar_fecha(datos.fecha) if datos.fecha else ruta_actual.fecha
+    nombre = datos.nombre if datos.nombre is not None else ruta_actual.nombre
     resultado = _planificar(db, usuario, datos)
 
     crud.cancelar_ruta(db, ruta_actual)
-    return _crear_ruta_desde_resultado(db, usuario, resultado)
+    return _crear_ruta_desde_resultado(db, usuario, resultado, fecha, nombre)
 
 
-@router.delete("/activa", response_model=MensajeResponse)
-def eliminar_ruta_activa(
-    db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_chofer_independiente)
+@router.delete("/{ruta_id}", response_model=MensajeResponse)
+def eliminar_ruta(
+    ruta_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_chofer_independiente),
 ):
-    ruta = _ruta_activa_o_404(db, usuario)
+    ruta = _ruta_propia_o_404(db, usuario, ruta_id)
+    if ruta.estado not in (EstadoRuta.PLANIFICADA, EstadoRuta.EN_CURSO):
+        raise HTTPException(status_code=409, detail="Esa ruta ya terminó o fue cancelada.")
     crud.cancelar_ruta(db, ruta)
     return MensajeResponse(mensaje="Ruta eliminada.")
 
 
-@router.post("/activa/iniciar", response_model=schemas.RutaPublica)
-def iniciar_ruta_activa(
-    db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_chofer_independiente)
+@router.post("/{ruta_id}/iniciar", response_model=schemas.RutaPublica)
+def iniciar_ruta(
+    ruta_id: uuid.UUID,
+    datos: schemas.IniciarRutaRequest | None = None,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_chofer_independiente),
 ):
-    ruta = _ruta_activa_o_404(db, usuario)
+    ruta = _ruta_propia_o_404(db, usuario, ruta_id)
     if ruta.estado != EstadoRuta.PLANIFICADA:
         raise HTTPException(status_code=409, detail="Esta ruta ya está iniciada o cerrada.")
+
+    en_curso = crud.obtener_ruta_en_curso(db, usuario.id)
+    if en_curso is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya tenés otra ruta en curso: terminala o cancelala antes de iniciar esta.",
+        )
+
+    hoy = datos.fecha_hoy if datos and datos.fecha_hoy else _hoy()
+    if abs((hoy - _hoy()).days) > 1:
+        raise HTTPException(
+            status_code=400, detail="La fecha de hoy que mandó tu dispositivo no es válida."
+        )
+    if ruta.fecha > hoy:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Esta ruta es para el {ruta.fecha.isoformat()}: solo se puede iniciar ese día.",
+        )
     return crud.iniciar_ruta(db, ruta)
 
 
@@ -173,8 +246,8 @@ def _parada_en_curso_o_error(
 ) -> tuple[Ruta, ParadaRuta]:
     """Validación común de las acciones sobre la parada actual: ruta en curso,
     parada de esa ruta y que sea justo la próxima a visitar."""
-    ruta = _ruta_activa_o_404(db, usuario)
-    if ruta.estado != EstadoRuta.EN_CURSO:
+    ruta = crud.obtener_ruta_en_curso(db, usuario.id)
+    if ruta is None:
         raise HTTPException(status_code=409, detail="Iniciá la ruta antes de marcar paradas.")
     parada = crud.obtener_parada_de_ruta(db, ruta, parada_id)
     if parada is None:
@@ -235,14 +308,14 @@ def saltear_parada_activa(
 
 @router.get("/activa", response_model=schemas.RutaPublica | None)
 def ruta_activa(db: Session = Depends(get_db), usuario: Usuario = Depends(obtener_usuario_actual)):
-    return crud.obtener_ruta_activa(db, usuario.id, _hoy())
+    return crud.obtener_ruta_en_curso(db, usuario.id)
 
 
 @router.get("/activa/geometria", response_model=schemas.GeometriaRuta)
 def geometria_ruta_activa(
     db: Session = Depends(get_db), usuario: Usuario = Depends(obtener_usuario_actual)
 ):
-    ruta = _ruta_activa_o_404(db, usuario)
+    ruta = _ruta_en_curso_o_404(db, usuario)
     coordenadas = (
         [{"latitud": ruta.deposito.latitud, "longitud": ruta.deposito.longitud}]
         + [
@@ -272,6 +345,7 @@ def historial_rutas(
         schemas.RutaHistorialItem(
             id=ruta.id,
             fecha=ruta.fecha,
+            nombre=ruta.nombre,
             estado=ruta.estado,
             tipo_problema=ruta.tipo_problema,
             distancia_total_m=ruta.distancia_total_m,

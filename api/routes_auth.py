@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.exc import IntegrityError
@@ -169,18 +168,20 @@ def actualizar_vehiculo_propio(
         raise HTTPException(status_code=404, detail="No tenés un vehículo registrado.")
     cambios = datos.model_dump(exclude_unset=True)
 
-    # Capacidad y patente entran en la planificación de la ruta de hoy: cambiar
-    # alguna con una ruta planificada o en curso la dejaría inconsistente.
+    # Capacidad y patente entran en la planificación de cualquier ruta (también
+    # las de días futuros, que ya se planificaron con la capacidad actual):
+    # cambiar alguna con una ruta planificada o en curso la dejaría inconsistente.
     cambia_capacidad = cambios.get("capacidad_carga_kg", vehiculo.capacidad_carga_kg) != (
         vehiculo.capacidad_carga_kg
     )
     cambia_patente = cambios.get("patente", vehiculo.patente) != vehiculo.patente
-    if (cambia_capacidad or cambia_patente) and crud.obtener_ruta_activa(
-        db, usuario.id, datetime.now(UTC).date()
-    ):
+    if (cambia_capacidad or cambia_patente) and crud.hay_ruta_abierta(db, usuario.id):
         raise HTTPException(
             status_code=409,
-            detail="Terminá o cancelá tu ruta de hoy antes de cambiar la patente o la capacidad.",
+            detail=(
+                "Terminá o cancelá tus rutas planificadas o en curso antes de cambiar "
+                "la patente o la capacidad."
+            ),
         )
 
     if cambia_patente:

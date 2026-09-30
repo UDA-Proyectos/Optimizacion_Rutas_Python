@@ -1,5 +1,4 @@
 import uuid
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -9,7 +8,6 @@ from api.dependencies import get_db, requiere_chofer_independiente
 from db import crud
 from db.modelos import (
     EstadoIncidencia,
-    EstadoRuta,
     Incidencia,
     ResolucionIncidencia,
     Usuario,
@@ -41,8 +39,8 @@ def reportar_incidencia(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_chofer_independiente),
 ):
-    ruta = crud.obtener_ruta_activa(db, usuario.id, datetime.now(UTC).date())
-    if ruta is None or ruta.estado != EstadoRuta.EN_CURSO:
+    ruta = crud.obtener_ruta_en_curso(db, usuario.id)
+    if ruta is None:
         raise HTTPException(
             status_code=409,
             detail="Necesitás tener una ruta en curso para reportar una incidencia.",

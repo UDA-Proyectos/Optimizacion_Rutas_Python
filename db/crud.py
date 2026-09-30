@@ -335,14 +335,47 @@ def eliminar_deposito(db: Session, deposito: Deposito) -> None:
     guardar(db, deposito)
 
 
-def obtener_ruta_activa(db: Session, chofer_id: uuid.UUID, fecha: date) -> Ruta | None:
-    return db.execute(
-        select(Ruta).where(
-            Ruta.chofer_id == chofer_id,
-            Ruta.fecha == fecha,
-            Ruta.estado.in_([EstadoRuta.PLANIFICADA, EstadoRuta.EN_CURSO]),
+def obtener_ruta_en_curso(db: Session, chofer_id: uuid.UUID) -> Ruta | None:
+    """La única ruta en curso del chofer, sin importar su fecha: una ruta
+    iniciada un día y sin terminar sigue siendo la actual al día siguiente."""
+    return (
+        db.execute(
+            select(Ruta).where(Ruta.chofer_id == chofer_id, Ruta.estado == EstadoRuta.EN_CURSO)
         )
-    ).scalar_one_or_none()
+        .scalars()
+        .first()
+    )
+
+
+def listar_rutas_del_dia(db: Session, chofer_id: uuid.UUID, fecha: date) -> list[Ruta]:
+    """Planificadas, en curso y completadas de un día, en el orden en que se
+    crearon. Las canceladas quedan fuera (siguen en el historial)."""
+    return list(
+        db.execute(
+            select(Ruta)
+            .where(
+                Ruta.chofer_id == chofer_id,
+                Ruta.fecha == fecha,
+                Ruta.estado != EstadoRuta.CANCELADA,
+            )
+            .order_by(Ruta.fecha_creacion)
+        ).scalars()
+    )
+
+
+def hay_ruta_abierta(db: Session, chofer_id: uuid.UUID) -> bool:
+    """Alguna ruta planificada o en curso, de cualquier fecha."""
+    return (
+        db.execute(
+            select(Ruta.id)
+            .where(
+                Ruta.chofer_id == chofer_id,
+                Ruta.estado.in_([EstadoRuta.PLANIFICADA, EstadoRuta.EN_CURSO]),
+            )
+            .limit(1)
+        ).first()
+        is not None
+    )
 
 
 def crear_ruta(
@@ -356,6 +389,7 @@ def crear_ruta(
     explicacion: str,
     hora_fin_estimada_min: int | None,
     paradas: list[DatosParadaRuta],
+    nombre: str | None = None,
 ) -> Ruta:
     """`paradas` ya viene en el orden que resolvió el solver (ver
     routing/planificador.py)."""
@@ -367,6 +401,7 @@ def crear_ruta(
             deposito_id=deposito.id,
             creado_por_usuario_id=chofer.id,
             fecha=fecha,
+            nombre=nombre,
             tipo_problema=tipo_problema,
             estado=EstadoRuta.PLANIFICADA,
             distancia_total_m=distancia_total_m,
@@ -401,7 +436,7 @@ def listar_rutas_historial(
     db: Session, chofer_id: uuid.UUID, desde: date, hasta: date
 ) -> list[Ruta]:
     """Historial de rutas de un chofer en un rango de fechas, cualquier
-    estado (a diferencia de obtener_ruta_activa, acá interesan también las
+    estado (a diferencia de listar_rutas_del_dia, acá interesan también las
     completadas/canceladas) — alimenta el almanaque de "Historial de rutas".
     Puede haber más de una Ruta para el mismo día (el chofer canceló y
     volvió a armar otra) — se ordena con la más reciente primero dentro de
