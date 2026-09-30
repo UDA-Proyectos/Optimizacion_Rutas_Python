@@ -1,0 +1,55 @@
+schema: spec-driven
+
+context: |
+  Language: español
+  All artifacts must be written in español.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Proyecto: motor de optimización de rutas (VRP) para distribución en el Gran Mendoza
+  (prototipo del paper CACIC 2026) + app web PWA para choferes de reparto.
+  Variantes: CVRP (capacidad) y VRPTW (ventanas horarias). Arquitectura detallada en CLAUDE.md.
+
+  Stack (decidido, no proponer alternativas sin discutirlo):
+  - Backend: Python 3.12, gestionado con uv (pyproject.toml + uv.lock), FastAPI + Pydantic v2, uvicorn.
+  - Optimización: Google OR-Tools (ortools.constraint_solver); PyVRP solo para comparación empírica.
+  - Datos de tránsito: OSRM (perfil driving, matrices de distancia en metros y tiempo en segundos).
+  - Base de datos: PostgreSQL (Docker), SQLAlchemy 2.0 sync + Alembic. El motor VRP es stateless.
+  - Auth: passlib[bcrypt] + python-jose, JWT en cookie httpOnly (nunca localStorage).
+  - Config: pydantic-settings + .env; nada de URLs, timeouts ni límites hardcodeados (van en core/config.py).
+  - Tests: pytest contra DB Postgres de test separada; lint/formato: ruff (único).
+  - Frontend (frontend/): React 19 + Vite + TypeScript, Tailwind CSS v4, Zustand (sin persist),
+    react-router-dom, Leaflet + OpenStreetMap. Gestionado con npm, separado de uv.
+
+  Convenciones:
+  - Español en todo: nombres de funciones, variables, campos de modelos, claves JSON y comentarios.
+  - snake_case (backend) / PascalCase para modelos Pydantic y componentes React / camelCase en frontend.
+  - Type hints completos en código nuevo; comentarios solo para explicar un "por qué" no obvio.
+  - Nodo 0 = depósito; OSRM usa "lon,lat"; ventanas horarias en minuto del día.
+  - routing/solver.py es el único lugar del modelado OR-Tools; no duplicarlo en scripts.
+  - tipos/auth.ts del frontend espeja api/schemas_auth.py: actualizar ambos a mano.
+  - Migraciones: alembic revision --autogenerate y revisar a mano; alembic/versions/ excluido de ruff.
+
+  Fuera de alcance por ahora: billing/suscripciones, verificación de email, PWA offline,
+  dashboard de empresa, asignación de rutas por empresa, POD/incidencias.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
