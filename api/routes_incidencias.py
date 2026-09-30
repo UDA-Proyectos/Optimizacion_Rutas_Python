@@ -16,21 +16,27 @@ from db.modelos import (
 router = APIRouter(prefix="/api/v1/incidencias", tags=["Incidencias"])
 
 
-def _publica(db: Session, incidencia: Incidencia) -> schemas.IncidenciaPublica:
-    return schemas.IncidenciaPublica(
-        id=incidencia.id,
-        tipo=incidencia.tipo,
-        descripcion=incidencia.descripcion,
-        fecha_hora=incidencia.fecha_hora,
-        ruta_id=incidencia.ruta_id,
-        ruta_fecha=incidencia.ruta.fecha,
-        parada_id=incidencia.parada_id,
-        parada_nombre=incidencia.parada.nombre_snapshot if incidencia.parada else None,
-        estado=incidencia.estado,
-        resolucion=incidencia.resolucion,
-        fecha_resolucion=incidencia.fecha_resolucion,
-        puede_reprogramarse=crud.incidencia_es_reprogramable(db, incidencia),
+def _publicas(db: Session, incidencias: list[Incidencia]) -> list[schemas.IncidenciaPublica]:
+    reprogramadas = crud.paradas_ya_reprogramadas(
+        db, [i.parada_id for i in incidencias if i.parada_id is not None]
     )
+    return [
+        schemas.IncidenciaPublica(
+            id=incidencia.id,
+            tipo=incidencia.tipo,
+            descripcion=incidencia.descripcion,
+            fecha_hora=incidencia.fecha_hora,
+            ruta_id=incidencia.ruta_id,
+            ruta_fecha=incidencia.ruta.fecha,
+            parada_id=incidencia.parada_id,
+            parada_nombre=incidencia.parada.nombre_snapshot if incidencia.parada else None,
+            estado=incidencia.estado,
+            resolucion=incidencia.resolucion,
+            fecha_resolucion=incidencia.fecha_resolucion,
+            puede_reprogramarse=crud.incidencia_es_reprogramable(incidencia, reprogramadas),
+        )
+        for incidencia in incidencias
+    ]
 
 
 @router.post("", response_model=schemas.IncidenciaPublica, status_code=201)
@@ -60,7 +66,7 @@ def reportar_incidencia(
         descripcion=datos.descripcion,
         parada=parada,
     )
-    return _publica(db, incidencia)
+    return _publicas(db, [incidencia])[0]
 
 
 @router.get("", response_model=list[schemas.IncidenciaPublica])
@@ -72,7 +78,7 @@ def listar_incidencias(
     usuario: Usuario = Depends(requiere_chofer_independiente),
 ):
     incidencias = crud.listar_incidencias_de_chofer(db, usuario.id, limite, desplazamiento, estado)
-    return [_publica(db, incidencia) for incidencia in incidencias]
+    return _publicas(db, incidencias)
 
 
 @router.post("/{incidencia_id}/resolver", response_model=schemas.IncidenciaPublica)
@@ -89,7 +95,8 @@ def resolver_incidencia(
         raise HTTPException(status_code=409, detail="Esa incidencia ya está resuelta.")
 
     if datos.resolucion == ResolucionIncidencia.REPROGRAMADA:
-        if not crud.incidencia_es_reprogramable(db, incidencia):
+        reprogramadas = crud.paradas_ya_reprogramadas(db, [incidencia.parada_id])
+        if not crud.incidencia_es_reprogramable(incidencia, reprogramadas):
             raise HTTPException(
                 status_code=409,
                 detail="Solo se puede reprogramar la entrega de una parada que no se pudo entregar.",
@@ -97,4 +104,4 @@ def resolver_incidencia(
         crud.reprogramar_entrega(db, usuario, incidencia.parada, incidencia)
     else:
         crud.cerrar_incidencia(db, incidencia)
-    return _publica(db, incidencia)
+    return _publicas(db, [incidencia])[0]

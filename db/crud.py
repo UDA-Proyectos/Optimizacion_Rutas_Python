@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Protocol
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from db.modelos import (
     Cliente,
@@ -454,7 +454,7 @@ def listar_rutas_historial(
     )
 
 
-def obtener_ruta_historial(db: Session, chofer_id: uuid.UUID, ruta_id: uuid.UUID) -> Ruta | None:
+def obtener_ruta_propia(db: Session, chofer_id: uuid.UUID, ruta_id: uuid.UUID) -> Ruta | None:
     return db.execute(
         select(Ruta).where(Ruta.id == ruta_id, Ruta.chofer_id == chofer_id)
     ).scalar_one_or_none()
@@ -550,7 +550,10 @@ def listar_incidencias_de_chofer(
         consulta = consulta.where(Incidencia.estado == estado)
     return list(
         db.execute(
-            consulta.order_by(Incidencia.fecha_hora.desc()).limit(limite).offset(desplazamiento)
+            consulta.options(joinedload(Incidencia.ruta), joinedload(Incidencia.parada))
+            .order_by(Incidencia.fecha_hora.desc())
+            .limit(limite)
+            .offset(desplazamiento)
         ).scalars()
     )
 
@@ -565,21 +568,27 @@ def obtener_incidencia_propia(
     ).scalar_one_or_none()
 
 
-def incidencia_es_reprogramable(db: Session, incidencia: Incidencia) -> bool:
-    """Solo la de una parada fallida que todavía no se reprogramó."""
+def paradas_ya_reprogramadas(db: Session, parada_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+    """Cuáles de estas paradas ya tienen una entrega reprogramada (una sola consulta)."""
+    return set(
+        db.execute(
+            select(EntregaPendiente.parada_origen_id).where(
+                EntregaPendiente.parada_origen_id.in_(parada_ids)
+            )
+        ).scalars()
+    )
+
+
+def incidencia_es_reprogramable(incidencia: Incidencia, reprogramadas: set[uuid.UUID]) -> bool:
+    """Solo la de una parada fallida que todavía no se reprogramó; `reprogramadas`
+    sale de `paradas_ya_reprogramadas`."""
     parada = incidencia.parada
     return (
         incidencia.estado == EstadoIncidencia.PENDIENTE
         and parada is not None
         and parada.estado == EstadoParada.FALLIDA
-        and obtener_entrega_de_parada(db, parada.id) is None
+        and parada.id not in reprogramadas
     )
-
-
-def obtener_entrega_de_parada(db: Session, parada_id: uuid.UUID) -> EntregaPendiente | None:
-    return db.execute(
-        select(EntregaPendiente).where(EntregaPendiente.parada_origen_id == parada_id)
-    ).scalar_one_or_none()
 
 
 def _resolver(db: Session, incidencia: Incidencia, resolucion: ResolucionIncidencia) -> None:

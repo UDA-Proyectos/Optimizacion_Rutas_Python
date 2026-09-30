@@ -1,13 +1,25 @@
 import { useState } from "react";
 
-import { completarParada, fallarParada, registrarLlegada, saltearParada } from "../../api/rutas";
+import {
+  completarParada,
+  fallarParada,
+  registrarLlegada,
+  saltearParada,
+} from "../../api/rutas";
 import type { EjecutarAccionRuta } from "../../hooks/useRutaActiva";
 import type { EstadoGps } from "../../hooks/useUbicacion";
 import type { UsuarioPublico } from "../../tipos/auth";
 import type { ClientePublico } from "../../tipos/cliente";
-import type { MotivoFalloParada, ParadaRutaPublica, RutaPublica } from "../../tipos/ruta";
+import type {
+  MotivoFalloParada,
+  ParadaRutaPublica,
+  RutaPublica,
+} from "../../tipos/ruta";
 import { minutosAHhMm } from "../../utilidades/horario";
-import { ETIQUETA_MOTIVO, OPCIONES_MOTIVO_FALLO } from "../../utilidades/motivosFallo";
+import {
+  ETIQUETA_MOTIVO,
+  OPCIONES_MOTIVO_FALLO,
+} from "../../utilidades/motivosFallo";
 import { combinarClases } from "../ui/combinarClases";
 import { BannerError } from "../ui/Formulario";
 import { MapaRutaActiva } from "./MapaRutaActiva";
@@ -22,18 +34,31 @@ interface KpiProps {
 
 // Compactas a propósito: son el dato secundario de la pantalla, el mapa y
 // la parada actual son lo que realmente importa mientras se maneja.
-function TarjetaKpi({ label, value, unit, delta, deltaColor = "#667085" }: KpiProps) {
+function TarjetaKpi({
+  label,
+  value,
+  unit,
+  delta,
+  deltaColor = "#667085",
+}: KpiProps) {
   return (
     <div className="rounded-lg border border-borde bg-blanco px-3 py-2 shadow-sm">
       <div className="mb-0.5 truncate text-[8px] font-bold tracking-[0.08em] text-texto-mutado uppercase">
         {label}
       </div>
       <div className="flex items-baseline gap-1">
-        <div className="font-mono text-base leading-none font-bold text-texto-fuerte">{value}</div>
-        <div className="truncate text-[10px] font-medium text-texto-mutado">{unit}</div>
+        <div className="font-mono text-base leading-none font-bold text-texto-fuerte">
+          {value}
+        </div>
+        <div className="truncate text-[10px] font-medium text-texto-mutado">
+          {unit}
+        </div>
       </div>
       {delta && (
-        <div className="mt-0.5 truncate text-[9.5px] font-medium" style={{ color: deltaColor }}>
+        <div
+          className="mt-0.5 truncate text-[9.5px] font-medium"
+          style={{ color: deltaColor }}
+        >
           {delta}
         </div>
       )}
@@ -75,6 +100,85 @@ function BotonUbicacion({ gps }: { gps: EstadoGps }) {
   );
 }
 
+const TITULO_SECCION =
+  "text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase";
+
+/** Dos pasos: el motivo del fallo y, con el motivo elegido, qué hacer con la entrega. */
+function SelectorFallo({
+  bloqueado,
+  onFallar,
+}: {
+  bloqueado: boolean;
+  onFallar: (motivo: MotivoFalloParada, reprogramar: boolean) => void;
+}) {
+  const [motivoElegido, setMotivoElegido] = useState<MotivoFalloParada | null>(
+    null,
+  );
+
+  if (!motivoElegido) {
+    return (
+      <div className="mt-2.5">
+        <div className={combinarClases("mb-1.5", TITULO_SECCION)}>
+          ¿Por qué no pudiste entregar?
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {OPCIONES_MOTIVO_FALLO.map((motivo) => (
+            <button
+              key={motivo}
+              type="button"
+              disabled={bloqueado}
+              onClick={() => setMotivoElegido(motivo)}
+              className="h-8 rounded-lg border border-borde-input bg-blanco px-2.5 text-[11.5px] font-semibold text-texto-cuerpo disabled:opacity-60"
+            >
+              {ETIQUETA_MOTIVO[motivo]}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2.5">
+      <div className={combinarClases("mb-1.5", TITULO_SECCION)}>
+        {ETIQUETA_MOTIVO[motivoElegido]} · ¿Qué hacemos con esta entrega?
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <button
+          type="button"
+          disabled={bloqueado}
+          onClick={() => onFallar(motivoElegido, true)}
+          className="h-9 rounded-lg bg-primario px-3 text-[12px] font-bold text-blanco disabled:opacity-60"
+        >
+          Reprogramar para la próxima ruta
+        </button>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            disabled={bloqueado}
+            onClick={() => onFallar(motivoElegido, false)}
+            className="h-9 flex-1 rounded-lg border border-borde-input bg-blanco px-2 text-[12px] font-semibold text-texto-cuerpo disabled:opacity-60"
+          >
+            Decidir después
+          </button>
+          <button
+            type="button"
+            disabled={bloqueado}
+            onClick={() => setMotivoElegido(null)}
+            className="h-9 rounded-lg px-3 text-[12px] font-semibold text-texto-mutado disabled:opacity-60"
+          >
+            Volver
+          </button>
+        </div>
+        <p className="text-[10.5px] text-texto-mutado">
+          Si decidís después, la ves en Incidencias y la podés reprogramar desde
+          ahí.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** Overlay del mapa mientras hay una parada en curso: tarjeta con los datos
  * de esa parada arriba, y la barra de acciones (confirmar llegada, llamar
  * al cliente) abajo — separado de VistaEnCursoRuta para que esa función no
@@ -110,8 +214,6 @@ function OverlayParadaActual({
   // Estado puramente visual (el selector abierto/cerrado). Se reinicia solo al
   // cambiar de parada porque el padre monta este componente con `key`.
   const [eligiendoMotivo, setEligiendoMotivo] = useState(false);
-  // Segundo paso: con el motivo ya elegido, qué hacer con la entrega.
-  const [motivoElegido, setMotivoElegido] = useState<MotivoFalloParada | null>(null);
   const arribado = paradaActual.hora_real_llegada != null;
   const bloqueado = enviando || sinConexion;
 
@@ -137,18 +239,19 @@ function OverlayParadaActual({
             </div>
             <div className="text-[10px] text-texto-mutado">carga</div>
           </div>
-          {usaVentanasHorarias && paradaActual.ventana_inicio_snapshot != null && (
-            <>
-              <div className="h-6.5 w-px bg-borde" />
-              <div>
-                <div className="font-mono text-sm font-bold text-texto-fuerte">
-                  {minutosAHhMm(paradaActual.ventana_inicio_snapshot)}–
-                  {minutosAHhMm(paradaActual.ventana_fin_snapshot ?? 0)}
+          {usaVentanasHorarias &&
+            paradaActual.ventana_inicio_snapshot != null && (
+              <>
+                <div className="h-6.5 w-px bg-borde" />
+                <div>
+                  <div className="font-mono text-sm font-bold text-texto-fuerte">
+                    {minutosAHhMm(paradaActual.ventana_inicio_snapshot)}–
+                    {minutosAHhMm(paradaActual.ventana_fin_snapshot ?? 0)}
+                  </div>
+                  <div className="text-[10px] text-texto-mutado">ventana</div>
                 </div>
-                <div className="text-[10px] text-texto-mutado">ventana</div>
-              </div>
-            </>
-          )}
+              </>
+            )}
           {paradaActual.hora_estimada_llegada != null && (
             <span
               className={combinarClases(
@@ -197,68 +300,13 @@ function OverlayParadaActual({
         </div>
         {sinConexion && (
           <p className="mt-2 text-[11px] text-peligro">
-            Sin conexión: solo podés mirar la ruta. Las acciones se habilitan al volver la señal.
+            Sin conexión: solo podés mirar la ruta. Las acciones se habilitan al
+            volver la señal.
           </p>
         )}
 
-        {eligiendoMotivo && !motivoElegido && (
-          <div className="mt-2.5">
-            <div className="mb-1.5 text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase">
-              ¿Por qué no pudiste entregar?
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {OPCIONES_MOTIVO_FALLO.map((motivo) => (
-                <button
-                  key={motivo}
-                  type="button"
-                  disabled={bloqueado}
-                  onClick={() => setMotivoElegido(motivo)}
-                  className="h-8 rounded-lg border border-borde-input bg-blanco px-2.5 text-[11.5px] font-semibold text-texto-cuerpo disabled:opacity-60"
-                >
-                  {ETIQUETA_MOTIVO[motivo]}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {motivoElegido && (
-          <div className="mt-2.5">
-            <div className="mb-1.5 text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase">
-              {ETIQUETA_MOTIVO[motivoElegido]} · ¿Qué hacemos con esta entrega?
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <button
-                type="button"
-                disabled={bloqueado}
-                onClick={() => onFallar(motivoElegido, true)}
-                className="h-9 rounded-lg bg-primario px-3 text-[12px] font-bold text-blanco disabled:opacity-60"
-              >
-                Reprogramar para la próxima ruta
-              </button>
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  disabled={bloqueado}
-                  onClick={() => onFallar(motivoElegido, false)}
-                  className="h-9 flex-1 rounded-lg border border-borde-input bg-blanco px-2 text-[12px] font-semibold text-texto-cuerpo disabled:opacity-60"
-                >
-                  Decidir después
-                </button>
-                <button
-                  type="button"
-                  disabled={bloqueado}
-                  onClick={() => setMotivoElegido(null)}
-                  className="h-9 rounded-lg px-3 text-[12px] font-semibold text-texto-mutado disabled:opacity-60"
-                >
-                  Volver
-                </button>
-              </div>
-              <p className="text-[10.5px] text-texto-mutado">
-                Si decidís después, la ves en Incidencias y la podés reprogramar desde ahí.
-              </p>
-            </div>
-          </div>
+        {eligiendoMotivo && (
+          <SelectorFallo bloqueado={bloqueado} onFallar={onFallar} />
         )}
       </div>
 
@@ -269,7 +317,11 @@ function OverlayParadaActual({
           onClick={onLlegue}
           className="h-[52px] flex-1 rounded-xl bg-exito px-2 text-[12px] font-bold text-blanco shadow-[0_4px_12px_rgba(18,183,106,0.32)] disabled:opacity-60 sm:text-[13.5px]"
         >
-          {enviando ? "Un momento…" : arribado ? "Confirmar entrega y seguir" : "Llegué al destino"}
+          {enviando
+            ? "Un momento…"
+            : arribado
+              ? "Confirmar entrega y seguir"
+              : "Llegué al destino"}
         </button>
         {clienteActual?.telefono ? (
           <a
@@ -329,16 +381,28 @@ export function VistaEnCursoRuta({
   const vehiculo = usuario.vehiculo!;
 
   const kgTotal = paradas.reduce((a, p) => a + p.demanda_carga_snapshot, 0);
-  const kgEntregado = completadas.reduce((a, p) => a + p.demanda_carga_snapshot, 0);
+  const kgEntregado = completadas.reduce(
+    (a, p) => a + p.demanda_carga_snapshot,
+    0,
+  );
   const kgPendiente = kgTotal - kgEntregado;
-  const cargaPendientePct = Math.round((kgPendiente / vehiculo.capacidad_carga_kg) * 100);
+  const cargaPendientePct = Math.round(
+    (kgPendiente / vehiculo.capacidad_carga_kg) * 100,
+  );
 
-  const ultimaCompletada = [...completadas].sort((a, b) => b.orden - a.orden)[0];
-  const kmRecorridos = ultimaCompletada ? ultimaCompletada.distancia_acumulada_m / 1000 : 0;
+  const ultimaCompletada = [...completadas].sort(
+    (a, b) => b.orden - a.orden,
+  )[0];
+  const kmRecorridos = ultimaCompletada
+    ? ultimaCompletada.distancia_acumulada_m / 1000
+    : 0;
   const kmPlanificados = (ruta.distancia_total_m ?? 0) / 1000;
 
-  const ventanasCumplidas = completadas.filter((p) => p.ventana_cumplida === true).length;
-  const ventanasPct = doneCount > 0 ? Math.round((100 * ventanasCumplidas) / doneCount) : 0;
+  const ventanasCumplidas = completadas.filter(
+    (p) => p.ventana_cumplida === true,
+  ).length;
+  const ventanasPct =
+    doneCount > 0 ? Math.round((100 * ventanasCumplidas) / doneCount) : 0;
 
   const kpis: KpiProps[] = [
     {
@@ -360,14 +424,19 @@ export function VistaEnCursoRuta({
       label: "Km recorridos",
       value: kmRecorridos.toFixed(1),
       unit: "km",
-      delta: kmPlanificados > 0 ? `de ${kmPlanificados.toFixed(1)} km planificados` : "",
+      delta:
+        kmPlanificados > 0
+          ? `de ${kmPlanificados.toFixed(1)} km planificados`
+          : "",
     },
     ruta.usa_ventanas_horarias
       ? {
           label: "Ventanas cumplidas",
           value: String(ventanasPct),
           unit: "%",
-          delta: paradaActual?.en_riesgo ? "1 parada en riesgo ahora" : "sin riesgos activos",
+          delta: paradaActual?.en_riesgo
+            ? "1 parada en riesgo ahora"
+            : "sin riesgos activos",
           deltaColor: paradaActual?.en_riesgo ? "#B42318" : "#667085",
         }
       : {
@@ -387,13 +456,22 @@ export function VistaEnCursoRuta({
   async function manejarLlegue() {
     if (!paradaActual) return;
     if (paradaActual.hora_real_llegada == null) {
-      await ejecutar(() => registrarLlegada(paradaActual.id), "No se pudo registrar la llegada.");
+      await ejecutar(
+        () => registrarLlegada(paradaActual.id),
+        "No se pudo registrar la llegada.",
+      );
       return;
     }
-    await ejecutar(() => completarParada(paradaActual.id), "No se pudo marcar la parada.");
+    await ejecutar(
+      () => completarParada(paradaActual.id),
+      "No se pudo marcar la parada.",
+    );
   }
 
-  async function manejarFallar(motivo: MotivoFalloParada, reprogramar: boolean) {
+  async function manejarFallar(
+    motivo: MotivoFalloParada,
+    reprogramar: boolean,
+  ) {
     if (!paradaActual) return;
     await ejecutar(
       () => fallarParada(paradaActual.id, motivo, reprogramar),
@@ -403,12 +481,17 @@ export function VistaEnCursoRuta({
 
   async function manejarSaltear() {
     if (!paradaActual) return;
-    await ejecutar(() => saltearParada(paradaActual.id), "No se pudo saltear la parada.");
+    await ejecutar(
+      () => saltearParada(paradaActual.id),
+      "No se pudo saltear la parada.",
+    );
   }
 
   const puedeSaltear = paradas.some((p) => p.estado === "pendiente");
 
-  const clienteActual = paradaActual ? clientePorId.get(paradaActual.cliente_id) : undefined;
+  const clienteActual = paradaActual
+    ? clientePorId.get(paradaActual.cliente_id)
+    : undefined;
 
   return (
     <div className="flex min-h-0 flex-col overflow-y-auto lg:h-full lg:flex-row lg:overflow-hidden">
@@ -509,12 +592,15 @@ export function VistaEnCursoRuta({
 
         <div className="shrink-0 border-t border-borde bg-white/60 px-5 pt-3.5 pb-4.5">
           <div className="mb-1 flex items-baseline justify-between">
-            <div className="text-[11.5px] font-semibold text-texto-mutado">Cierre estimado</div>
-            {ruta.usa_ventanas_horarias && ruta.hora_fin_estimada_min != null && (
-              <div className="font-mono text-lg font-bold text-texto-fuerte">
-                {minutosAHhMm(ruta.hora_fin_estimada_min)}
-              </div>
-            )}
+            <div className="text-[11.5px] font-semibold text-texto-mutado">
+              Cierre estimado
+            </div>
+            {ruta.usa_ventanas_horarias &&
+              ruta.hora_fin_estimada_min != null && (
+                <div className="font-mono text-lg font-bold text-texto-fuerte">
+                  {minutosAHhMm(ruta.hora_fin_estimada_min)}
+                </div>
+              )}
           </div>
           <div className="text-[10.5px] text-texto-mutado">
             {pendientesCount > 0
@@ -526,6 +612,37 @@ export function VistaEnCursoRuta({
     </div>
   );
 }
+
+const ESTILO_PARADA: Record<
+  string,
+  { nodo: string; linea: string; badge: string }
+> = {
+  completada: {
+    nodo: "bg-exito border-exito text-blanco",
+    linea: "bg-[#D3F2E0]",
+    badge: "bg-exito-tint text-[#079455]",
+  },
+  fallida: {
+    nodo: "bg-peligro border-peligro text-blanco",
+    linea: "bg-borde",
+    badge: "bg-peligro-tint text-peligro",
+  },
+  riesgo: {
+    nodo: "bg-peligro border-peligro text-blanco",
+    linea: "bg-borde",
+    badge: "bg-peligro-tint text-peligro",
+  },
+  en_curso: {
+    nodo: "bg-primario border-primario text-blanco",
+    linea: "bg-borde",
+    badge: "bg-primario/10 text-[#6428CC]",
+  },
+  pendiente: {
+    nodo: "bg-blanco border-borde-input text-texto-mutado",
+    linea: "bg-borde",
+    badge: "bg-fondo text-texto-cuerpo",
+  },
+};
 
 function FilaTimeline({
   parada,
@@ -539,29 +656,26 @@ function FilaTimeline({
   esUltima: boolean;
 }) {
   const enRiesgo = parada.estado === "en_curso" && parada.en_riesgo;
-  const estilo =
-    parada.estado === "completada"
-      ? { nodo: "bg-exito border-exito text-blanco", linea: "bg-[#D3F2E0]", badge: "bg-exito-tint text-[#079455]" }
-      : parada.estado === "fallida"
-        ? { nodo: "bg-peligro border-peligro text-blanco", linea: "bg-borde", badge: "bg-peligro-tint text-peligro" }
-      : enRiesgo
-        ? { nodo: "bg-peligro border-peligro text-blanco", linea: "bg-borde", badge: "bg-peligro-tint text-peligro" }
-        : parada.estado === "en_curso"
-          ? { nodo: "bg-primario border-primario text-blanco", linea: "bg-borde", badge: "bg-primario/10 text-[#6428CC]" }
-          : { nodo: "bg-blanco border-borde-input text-texto-mutado", linea: "bg-borde", badge: "bg-fondo text-texto-cuerpo" };
+  const clave = enRiesgo ? "riesgo" : parada.estado;
+  const estilo = ESTILO_PARADA[clave] ?? ESTILO_PARADA.pendiente;
 
-  const badgeLabel =
-    parada.estado === "completada"
-      ? "Entregada"
-      : parada.estado === "fallida"
-        ? `No entregada${parada.motivo_fallo ? ` · ${ETIQUETA_MOTIVO[parada.motivo_fallo]}` : ""}`
-      : parada.estado === "en_curso"
-        ? usaVentanas && parada.hora_estimada_llegada != null
-          ? `${enRiesgo ? "Riesgo · " : "Llega "}${minutosAHhMm(parada.hora_estimada_llegada)}`
-          : "En curso"
-        : usaVentanas && parada.ventana_inicio_snapshot != null && parada.ventana_fin_snapshot != null
-          ? `${minutosAHhMm(parada.ventana_inicio_snapshot)}–${minutosAHhMm(parada.ventana_fin_snapshot)}`
-          : "Pendiente";
+  const ventana =
+    usaVentanas &&
+    parada.ventana_inicio_snapshot != null &&
+    parada.ventana_fin_snapshot != null
+      ? `${minutosAHhMm(parada.ventana_inicio_snapshot)}–${minutosAHhMm(parada.ventana_fin_snapshot)}`
+      : null;
+  const llegada =
+    usaVentanas && parada.hora_estimada_llegada != null
+      ? `${enRiesgo ? "Riesgo · " : "Llega "}${minutosAHhMm(parada.hora_estimada_llegada)}`
+      : null;
+  const etiquetas: Record<string, string> = {
+    completada: "Entregada",
+    fallida: `No entregada${parada.motivo_fallo ? ` · ${ETIQUETA_MOTIVO[parada.motivo_fallo]}` : ""}`,
+    en_curso: llegada ?? "En curso",
+    pendiente: ventana ?? "Pendiente",
+  };
+  const badgeLabel = etiquetas[parada.estado];
 
   return (
     <div className="grid grid-cols-[24px_1fr] gap-3">
@@ -572,22 +686,34 @@ function FilaTimeline({
             estilo.nodo,
           )}
         >
-          {parada.estado === "completada" ? "✓" : parada.estado === "fallida" ? "✕" : indice + 1}
+          {parada.estado === "completada"
+            ? "✓"
+            : parada.estado === "fallida"
+              ? "✕"
+              : indice + 1}
         </div>
-        {!esUltima && <div className={combinarClases("min-h-3.5 w-0.5 flex-1", estilo.linea)} />}
+        {!esUltima && (
+          <div
+            className={combinarClases("min-h-3.5 w-0.5 flex-1", estilo.linea)}
+          />
+        )}
       </div>
       <div className="min-w-0 pb-3.5">
         <div className="flex items-baseline justify-between gap-2">
           <div
             className={combinarClases(
               "truncate text-[12.5px] font-semibold",
-              parada.estado === "completada" ? "text-texto-mutado" : "text-texto-fuerte",
+              parada.estado === "completada"
+                ? "text-texto-mutado"
+                : "text-texto-fuerte",
             )}
           >
             {parada.nombre_snapshot}
           </div>
           <div className="shrink-0 font-mono text-[10.5px] text-texto-mutado">
-            {parada.unidades_snapshot > 0 ? `${parada.unidades_snapshot} u · ` : ""}
+            {parada.unidades_snapshot > 0
+              ? `${parada.unidades_snapshot} u · `
+              : ""}
             {parada.demanda_carga_snapshot} kg
           </div>
         </div>

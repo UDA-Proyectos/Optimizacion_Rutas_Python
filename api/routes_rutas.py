@@ -135,7 +135,7 @@ def _ruta_en_curso_o_404(db: Session, usuario: Usuario) -> Ruta:
 
 
 def _ruta_propia_o_404(db: Session, usuario: Usuario, ruta_id: uuid.UUID) -> Ruta:
-    ruta = crud.obtener_ruta_historial(db, usuario.id, ruta_id)
+    ruta = crud.obtener_ruta_propia(db, usuario.id, ruta_id)
     if ruta is None:
         raise HTTPException(status_code=404, detail="No encontramos esa ruta.")
     return ruta
@@ -368,7 +368,7 @@ def detalle_ruta_historial(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_chofer_independiente),
 ):
-    ruta = crud.obtener_ruta_historial(db, usuario.id, ruta_id)
+    ruta = crud.obtener_ruta_propia(db, usuario.id, ruta_id)
     if ruta is None:
         raise HTTPException(status_code=404, detail="No encontramos esa ruta en tu historial.")
     return ruta
