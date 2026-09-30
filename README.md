@@ -63,6 +63,34 @@ porque el backend solo acepta pedidos desde ese origen (`FRONTEND_URL` en tu
 `.env` de la raíz) — si algo más ya está usando ese puerto, Vite va a fallar
 al arrancar en vez de saltar a otro puerto en silencio.
 
+### 3. OSRM propio (opcional)
+
+Por defecto el backend usa el servidor demo público de OSRM
+(`router.project-osrm.org`): anda sin instalar nada, pero tiene rate-limiting.
+Para tener tu propio OSRM con el mapa del Gran Mendoza:
+
+```bash
+uv run python scripts/preparar_osrm.py    # una sola vez: baja las calles y las procesa
+docker compose --profile osrm up -d osrm  # levanta OSRM en http://localhost:5001
+```
+
+y en tu `.env`: `OSRM_BASE_URL=http://localhost:5001` (reiniciá la API).
+
+- **Qué hace el script**: pide a Overpass las calles del recuadro del Gran Mendoza
+  (por teselas chicas, dividiendo las densas; una consulta grande da 504), las
+  fusiona en `data/osrm/mendoza.osm` y corre `osrm-extract`, `osrm-partition` y
+  `osrm-customize` dentro de la imagen oficial (`ghcr.io/project-osrm/osrm-backend`).
+- **Requisitos**: Docker con **≥ 2 GB de RAM** asignados (el procesamiento de la
+  zona por defecto usó muy poca, el pico del último paso fue de ~60 MB) y ~**60 MB**
+  de disco en `data/osrm/` (mapa de ~15 MB + ~45 MB ya procesados). Lo lento es
+  bajar el mapa: depende de servidores públicos (Overpass) y en la corrida de
+  referencia tardó bastante por reintentos (minutos hasta ~1 hora según la
+  carga). Si se corta, volvé a correr el script: reutiliza lo ya bajado.
+- **No baja Argentina completa** a propósito: son cientos de MB y `osrm-extract`
+  necesita varios GB de RAM. Con una máquina holgada, `--extracto ruta/al.osm.pbf`
+  usa un extracto propio, y `--bbox min_lon,min_lat,max_lon,max_lat` cambia la zona.
+- `data/osrm/` está en `.gitignore`: es pesado y se regenera con el script.
+
 ## Verificar que quedó todo andando
 
 1. Abrí `http://localhost:5174/registro` y creá una cuenta de chofer independiente.
@@ -76,7 +104,11 @@ para aislar si el problema es de setup local o de código.
 ## Notas
 
 - El `.env` de cada uno es local y **nunca se commitea** (está en `.gitignore`).
-- OSRM (el servicio que calcula distancias/tiempos reales) apunta hoy al
-  servidor demo público (`router.project-osrm.org`) — tiene rate-limiting,
-  no hace falta instalar nada aparte para desarrollo local.
+- OSRM (el servicio que calcula distancias/tiempos reales) apunta por defecto al
+  servidor demo público (`router.project-osrm.org`) — tiene rate-limiting, no hace
+  falta instalar nada aparte para desarrollo local. Para uno propio, ver
+  [OSRM propio](#3-osrm-propio-opcional).
+- El frontend es una PWA: el service worker solo se registra en el build de
+  producción (`npm run build` + `npx vite preview --port 5174 --strictPort`).
+  Tests del frontend: `npm test` (utilidades puras, sin dependencias extra).
 - Antes de abrir un PR, revisá los checks de [CONTRIBUTING.md](CONTRIBUTING.md#antes-de-abrir-un-pr).
