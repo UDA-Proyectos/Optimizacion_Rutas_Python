@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,15 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 10080  # 7 días
+
+    @field_validator("database_url")
+    @classmethod
+    def _usar_driver_psycopg(cls, valor: str) -> str:
+        # Railway (y otros hosts) entregan postgresql:// o postgres://; SQLAlchemy necesita el driver explícito.
+        for prefijo in ("postgres://", "postgresql://"):
+            if valor.startswith(prefijo):
+                return "postgresql+psycopg://" + valor.removeprefix(prefijo)
+        return valor
 
 
 @lru_cache

@@ -112,3 +112,18 @@ para aislar si el problema es de setup local o de código.
   producción (`npm run build` + `npx vite preview --port 5174 --strictPort`).
   Tests del frontend: `npm test` (utilidades puras, sin dependencias extra).
 - Antes de abrir un PR, revisá los checks de [CONTRIBUTING.md](CONTRIBUTING.md#antes-de-abrir-un-pr).
+
+## Deploy en Railway
+
+La app se despliega como **un solo servicio** (el `Dockerfile` compila la PWA y FastAPI la sirve junto a la API, así la cookie de sesión funciona sin dominio propio) más un Postgres.
+
+1. Subí el repo a GitHub. En Railway: **New Project → Deploy from GitHub repo** (toma `railway.json` y el `Dockerfile`).
+2. En el mismo proyecto: **New → Database → PostgreSQL**.
+3. En el servicio de la app, pestaña **Variables**:
+   - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (se corrige solo a `postgresql+psycopg://`)
+   - `JWT_SECRET_KEY` = salida de `python -c "import secrets;print(secrets.token_urlsafe(64))"`
+   - `ENTORNO` = `produccion`
+   - `FRONTEND_URL` = la URL pública del servicio (ej. `https://mi-app.up.railway.app`)
+4. **Settings → Networking → Generate Domain**.
+
+Las migraciones (`alembic upgrade head`) corren en cada arranque. `OSRM_BASE_URL` queda en el demo público; para un OSRM propio hace falta otro servicio con los datos de `scripts/preparar_osrm.py`.

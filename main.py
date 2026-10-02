@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.frontend_estatico import montar_frontend
 from api.routes import router as router_ruteo
 from api.routes_auth import router as router_auth
 from api.routes_clientes import router as router_clientes
@@ -33,3 +36,12 @@ app.include_router(router_geocoding)
 app.include_router(router_rutas)
 app.include_router(router_incidencias)
 app.include_router(router_entregas_pendientes)
+
+
+@app.get("/api/v1/salud", include_in_schema=False)
+def salud() -> dict[str, str]:
+    return {"estado": "ok"}
+
+
+# Debe ir al final: es un catch-all que no tiene que tapar los routers de arriba.
+montar_frontend(app, Path(__file__).parent / "frontend" / "dist")
