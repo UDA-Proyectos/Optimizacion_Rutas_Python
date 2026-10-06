@@ -127,3 +127,15 @@ La app se despliega como **un solo servicio** (el `Dockerfile` compila la PWA y 
 4. **Settings → Networking → Generate Domain**.
 
 Las migraciones (`alembic upgrade head`) corren en cada arranque. `OSRM_BASE_URL` queda en el demo público; para un OSRM propio hace falta otro servicio con los datos de `scripts/preparar_osrm.py`.
+
+### Login con Google (opcional)
+
+Sin estas variables la app funciona igual, solo que sin el botón "Continuar con Google".
+
+1. En [Google Cloud Console](https://console.cloud.google.com/) creá un proyecto (o usá uno existente) y entrá a **APIs y servicios → Pantalla de consentimiento de OAuth**: tipo **Externo**, nombre de la app, email de soporte y los scopes básicos (`openid`, `email`, `profile`). Cuando termines de probar, **publicala** (botón "Publicar app"); mientras esté en modo "Prueba" solo pueden entrar los usuarios de prueba que cargues ahí. Con solo esos scopes básicos, Google no pide verificación.
+2. **APIs y servicios → Credenciales → Crear credenciales → ID de cliente de OAuth**, tipo **Aplicación web**. En **URI de redireccionamiento autorizados** agregá:
+   - `https://<tu-dominio>/api/v1/auth/google/callback` (producción, ej. `https://optirutas.up.railway.app/api/v1/auth/google/callback`)
+   - `http://localhost:8000/api/v1/auth/google/callback` (desarrollo)
+3. Copiá el ID y el secreto. En Railway, en las variables del servicio de la app: `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`. `GOOGLE_REDIRECT_URI` puede quedar sin definir en producción (se usa `FRONTEND_URL` + `/api/v1/auth/google/callback`, así que `FRONTEND_URL` tiene que ser exactamente el dominio público). En tu `.env` local, cargá las tres (ver `.env.example`).
+
+Si alguien entra con Google con un email que ya tiene cuenta, se vincula a esa cuenta. Si el email es nuevo, se le piden los datos del vehículo y se crea como chofer independiente sin contraseña.

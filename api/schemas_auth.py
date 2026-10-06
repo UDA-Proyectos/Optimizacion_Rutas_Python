@@ -94,6 +94,25 @@ class RegistroChoferInvitado(DatosPersona, DatosVehiculo):
     codigo_invitacion: str = Field(..., min_length=8, max_length=12)
 
 
+class CompletarRegistroGoogle(DatosVehiculo):
+    nombre_completo: NombreCompleto
+
+
+class DatosChoferGoogle(CompletarRegistroGoogle):
+    """Lo que necesita crud.crear_chofer: el email sale del registro pendiente, no del body."""
+
+    email: EmailStr
+
+
+class RegistroGooglePendiente(BaseModel):
+    email: EmailStr
+    nombre_completo: str
+
+
+class ProveedoresAuth(BaseModel):
+    google: bool
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     contrasena: str
@@ -129,6 +148,7 @@ class UsuarioPublico(BaseModel):
     empresa_id: uuid.UUID | None
     telefono: str | None
     vehiculo: VehiculoPublico | None
+    tiene_contrasena: bool
     plan: PlanSuscripcion
     fecha_fin_prueba: datetime | None
     fecha_creacion: datetime

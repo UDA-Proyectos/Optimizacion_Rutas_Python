@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,24 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 10080  # 7 días
+
+    # Login con Google: sin client_id y client_secret la función queda deshabilitada.
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str = ""
+    google_timeout_segundos: float = 10
+
+    @property
+    def google_habilitado(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
+
+    @model_validator(mode="after")
+    def _redirect_uri_por_defecto(self) -> "Settings":
+        # En producción la API comparte origin con el frontend; en desarrollo (API en :8000)
+        # hay que configurar GOOGLE_REDIRECT_URI explícitamente.
+        if not self.google_redirect_uri:
+            self.google_redirect_uri = f"{self.frontend_url}/api/v1/auth/google/callback"
+        return self
 
     @field_validator("database_url")
     @classmethod

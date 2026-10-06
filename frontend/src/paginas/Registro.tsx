@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
+import { BotonGoogle } from "../componentes/formularios/BotonGoogle";
 import { FormularioRegistroChofer } from "../componentes/formularios/FormularioRegistroChofer";
 import { FormularioRegistroChoferInvitado } from "../componentes/formularios/FormularioRegistroChoferInvitado";
 import { FormularioRegistroEmpresa } from "../componentes/formularios/FormularioRegistroEmpresa";
@@ -70,7 +71,13 @@ export function Registro() {
       subtitulo="Completá tus datos para crear la cuenta."
       pie={pie}
     >
-      {tipoSeleccionado === "chofer_independiente" && <FormularioRegistroChofer />}
+      {tipoSeleccionado === "chofer_independiente" && (
+        <>
+          <FormularioRegistroChofer />
+          {/* Google solo crea choferes independientes (no empresas ni invitados). */}
+          <BotonGoogle />
+        </>
+      )}
       {tipoSeleccionado === "empresa" && <FormularioRegistroEmpresa />}
       {tipoSeleccionado === "chofer_invitado" && <FormularioRegistroChoferInvitado />}
     </PaginaAuth>

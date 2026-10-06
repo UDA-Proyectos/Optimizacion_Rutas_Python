@@ -27,6 +27,7 @@ def test_registro_chofer_independiente(client):
     assert cuerpo["empresa_id"] is None
     assert cuerpo["vehiculo"]["tipo_vehiculo"] == "moto"
     assert cuerpo["vehiculo"]["capacidad_carga_kg"] == 50
+    assert cuerpo["tiene_contrasena"] is True
     assert "token_acceso" in respuesta.cookies
 
 

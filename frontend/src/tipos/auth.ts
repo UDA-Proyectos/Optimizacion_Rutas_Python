@@ -26,6 +26,7 @@ export interface UsuarioPublico {
   empresa_id: string | null;
   telefono: string | null;
   vehiculo: VehiculoPublico | null;
+  tiene_contrasena: boolean;
   plan: PlanSuscripcion;
   fecha_fin_prueba: string | null;
   fecha_creacion: string;
@@ -57,6 +58,19 @@ interface DatosVehiculo {
   patente: string;
   capacidad_carga_kg: number;
 }
+
+/** Espeja api/schemas_auth.py (ProveedoresAuth, RegistroGooglePendiente,
+ * CompletarRegistroGoogle). */
+export interface ProveedoresAuth {
+  google: boolean;
+}
+
+export interface RegistroGooglePendiente {
+  email: string;
+  nombre_completo: string;
+}
+
+export type DatosCompletarRegistroGoogle = DatosVehiculo & { nombre_completo: string };
 
 export type DatosRegistroChoferIndependiente = DatosPersonaBase & DatosVehiculo;
 

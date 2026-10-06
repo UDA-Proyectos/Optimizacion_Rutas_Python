@@ -24,7 +24,7 @@ MENSAJE_EMAIL_DUPLICADO = "El email ya está registrado."
 MENSAJE_PATENTE_DUPLICADA = "La patente ya está registrada."
 
 
-def _setear_cookie_sesion(response: Response, usuario: Usuario) -> None:
+def setear_cookie_sesion(response: Response, usuario: Usuario) -> None:
     token = crear_token_acceso(usuario.id, usuario.rol.value, usuario.empresa_id)
     response.set_cookie(
         key=NOMBRE_COOKIE,
@@ -37,7 +37,7 @@ def _setear_cookie_sesion(response: Response, usuario: Usuario) -> None:
     )
 
 
-def _crear_cuenta(db: Session, email: str, crear: Callable[[], Usuario]) -> Usuario:
+def crear_cuenta(db: Session, email: str, crear: Callable[[], Usuario]) -> Usuario:
     """Verifica email único y ejecuta `crear`. Si dos requests concurrentes pasan
     ambas el chequeo previo, la unicidad a nivel de columna igual las separa —
     acá se traduce ese IntegrityError a un 409 limpio en vez de dejarlo escapar
@@ -54,8 +54,8 @@ def _crear_cuenta(db: Session, email: str, crear: Callable[[], Usuario]) -> Usua
         raise HTTPException(status_code=409, detail=MENSAJE_EMAIL_DUPLICADO)
 
 
-def _verificar_patente_disponible(db: Session, patente: str) -> None:
-    """Chequeo dedicado (no delegado a _crear_cuenta, que es genérico para
+def verificar_patente_disponible(db: Session, patente: str) -> None:
+    """Chequeo dedicado (no delegado a crear_cuenta, que es genérico para
     empresa+chofer): una patente duplicada no es un conflicto de email, y sin
     esto el IntegrityError de la unique constraint de Vehiculo.patente se
     traduciría erróneamente en MENSAJE_EMAIL_DUPLICADO."""
@@ -69,13 +69,13 @@ def _verificar_patente_disponible(db: Session, patente: str) -> None:
 def registrar_chofer_independiente(
     datos: schemas.RegistroChoferIndependiente, response: Response, db: Session = Depends(get_db)
 ):
-    _verificar_patente_disponible(db, datos.patente)
-    usuario = _crear_cuenta(
+    verificar_patente_disponible(db, datos.patente)
+    usuario = crear_cuenta(
         db,
         datos.email,
         lambda: crud.crear_chofer(db, datos, contrasena_hash=hashear_contrasena(datos.contrasena)),
     )
-    _setear_cookie_sesion(response, usuario)
+    setear_cookie_sesion(response, usuario)
     return usuario
 
 
@@ -84,7 +84,7 @@ def registrar_empresa(
     datos: schemas.RegistroEmpresa, response: Response, db: Session = Depends(get_db)
 ):
     empresa = crud.crear_empresa(db, nombre=datos.nombre_empresa)
-    usuario = _crear_cuenta(
+    usuario = crear_cuenta(
         db,
         datos.email,
         lambda: crud.crear_admin(
@@ -95,7 +95,7 @@ def registrar_empresa(
             empresa_id=empresa.id,
         ),
     )
-    _setear_cookie_sesion(response, usuario)
+    setear_cookie_sesion(response, usuario)
     return schemas.RegistroEmpresaResponse(usuario=usuario, empresa=empresa)
 
 
@@ -108,9 +108,9 @@ def registrar_chofer_invitado(
         raise HTTPException(status_code=404, detail="Código de invitación inexistente.")
     if invitacion.usado:
         raise HTTPException(status_code=409, detail="El código de invitación ya fue utilizado.")
-    _verificar_patente_disponible(db, datos.patente)
+    verificar_patente_disponible(db, datos.patente)
 
-    usuario = _crear_cuenta(
+    usuario = crear_cuenta(
         db,
         datos.email,
         lambda: crud.crear_chofer(
@@ -121,7 +121,7 @@ def registrar_chofer_invitado(
         ),
     )
     crud.marcar_codigo_usado(db, invitacion, usuario.id)
-    _setear_cookie_sesion(response, usuario)
+    setear_cookie_sesion(response, usuario)
     return usuario
 
 
@@ -133,7 +133,7 @@ def iniciar_sesion(datos: schemas.LoginRequest, response: Response, db: Session 
     if not usuario.activo:
         raise HTTPException(status_code=401, detail="Cuenta inactiva.")
 
-    _setear_cookie_sesion(response, usuario)
+    setear_cookie_sesion(response, usuario)
     return usuario
 
 
@@ -205,6 +205,10 @@ def cambiar_contrasena(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(obtener_usuario_actual),
 ):
+    if not usuario.tiene_contrasena:
+        raise HTTPException(
+            status_code=400, detail="Tu cuenta entra con Google y no tiene contraseña."
+        )
     if not verificar_contrasena(datos.contrasena_actual, usuario.contrasena_hash):
         raise HTTPException(status_code=400, detail="La contraseña actual es incorrecta.")
     crud.cambiar_contrasena(db, usuario, hashear_contrasena(datos.contrasena_nueva))

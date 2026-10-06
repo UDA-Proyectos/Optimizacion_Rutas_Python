@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from db.modelos import (
@@ -92,6 +92,29 @@ def obtener_usuario_por_email(db: Session, email: str) -> Usuario | None:
     return db.execute(select(Usuario).where(Usuario.email == email)).scalar_one_or_none()
 
 
+def obtener_usuario_por_email_sin_mayusculas(db: Session, email: str) -> Usuario | None:
+    # Google devuelve el email en minúsculas; las cuentas viejas pueden tenerlo con mayúsculas.
+    # Si dos cuentas difieren solo en mayúsculas, gana la más antigua.
+    return (
+        db.execute(
+            select(Usuario)
+            .where(func.lower(Usuario.email) == email.lower())
+            .order_by(Usuario.fecha_creacion)
+        )
+        .scalars()
+        .first()
+    )
+
+
+def obtener_usuario_por_google_sub(db: Session, google_sub: str) -> Usuario | None:
+    return db.execute(select(Usuario).where(Usuario.google_sub == google_sub)).scalar_one_or_none()
+
+
+def vincular_google(db: Session, usuario: Usuario, google_sub: str) -> Usuario:
+    usuario.google_sub = google_sub
+    return guardar(db, usuario)
+
+
 def obtener_vehiculo_por_patente(db: Session, patente: str) -> Vehiculo | None:
     return db.execute(select(Vehiculo).where(Vehiculo.patente == patente)).scalar_one_or_none()
 
@@ -120,8 +143,9 @@ def crear_empresa(db: Session, nombre: str) -> Empresa:
 def crear_chofer(
     db: Session,
     datos: DatosChofer,
-    contrasena_hash: str,
+    contrasena_hash: str | None,
     empresa_id: uuid.UUID | None = None,
+    google_sub: str | None = None,
 ) -> Usuario:
     """Chofer independiente (empresa_id=None) o chofer vinculado a una empresa.
     Crea también su Vehiculo — el registro sigue pidiendo esos datos juntos,
@@ -131,6 +155,7 @@ def crear_chofer(
         Usuario(
             email=datos.email,
             contrasena_hash=contrasena_hash,
+            google_sub=google_sub,
             nombre_completo=datos.nombre_completo,
             rol=RolUsuario.CHOFER,
             empresa_id=empresa_id,

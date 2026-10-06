@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { CompletarRegistroGoogle } from "./paginas/CompletarRegistroGoogle";
 import { Inicio } from "./paginas/Inicio";
 import { Login } from "./paginas/Login";
 import { Registro } from "./paginas/Registro";
@@ -40,6 +41,14 @@ export function AppRouter() {
         element={
           <RutaPublica>
             <Registro />
+          </RutaPublica>
+        }
+      />
+      <Route
+        path="/registro/google"
+        element={
+          <RutaPublica>
+            <CompletarRegistroGoogle />
           </RutaPublica>
         }
       />

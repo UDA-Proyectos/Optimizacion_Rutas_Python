@@ -1,8 +1,16 @@
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+export const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 /** Error con mensaje seguro para mostrar en un formulario, ya sea que venga
  * del backend (detail de una respuesta no-2xx) o de una validación de cliente. */
-export class ErrorFormulario extends Error {}
+export class ErrorFormulario extends Error {
+  /** Código HTTP si el error vino del backend; undefined si es una validación de cliente. */
+  estado?: number;
+
+  constructor(mensaje: string, estado?: number) {
+    super(mensaje);
+    this.estado = estado;
+  }
+}
 
 /** useAuthStore se registra acá al inicializarse para limpiar la sesión ante
  * un 401 de cualquier pedido — evita un import circular (fetchApi -> store ->
@@ -26,7 +34,7 @@ export async function fetchApi<T>(path: string, opciones: RequestInit = {}): Pro
       manejarSesionExpirada?.();
     }
     const cuerpo = await respuesta.json().catch(() => null);
-    throw new ErrorFormulario(cuerpo?.detail ?? "Error de red inesperado.");
+    throw new ErrorFormulario(cuerpo?.detail ?? "Error de red inesperado.", respuesta.status);
   }
 
   return respuesta.status === 204 ? (undefined as T) : respuesta.json();

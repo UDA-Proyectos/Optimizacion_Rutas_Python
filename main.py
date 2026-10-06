@@ -10,6 +10,7 @@ from api.routes_clientes import router as router_clientes
 from api.routes_depositos import router as router_depositos
 from api.routes_entregas_pendientes import router as router_entregas_pendientes
 from api.routes_geocoding import router as router_geocoding
+from api.routes_google import router as router_google
 from api.routes_incidencias import router as router_incidencias
 from api.routes_rutas import router as router_rutas
 from core.config import settings
@@ -30,6 +31,7 @@ app.add_middleware(
 
 app.include_router(router_ruteo)
 app.include_router(router_auth)
+app.include_router(router_google)
 app.include_router(router_clientes)
 app.include_router(router_depositos)
 app.include_router(router_geocoding)

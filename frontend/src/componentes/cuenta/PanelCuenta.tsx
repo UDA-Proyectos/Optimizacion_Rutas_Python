@@ -112,16 +112,22 @@ export function PanelCuenta({ usuario, onCerrarSesion }: Props) {
         >
           Editar mis datos
         </Boton>
-        <Boton
-          variante="secundario"
-          onClick={() => {
-            setAviso(null);
-            setModo("contrasena");
-          }}
-        >
-          Cambiar contraseña
-        </Boton>
+        {/* Las cuentas creadas con Google no tienen contraseña que cambiar. */}
+        {usuario.tiene_contrasena && (
+          <Boton
+            variante="secundario"
+            onClick={() => {
+              setAviso(null);
+              setModo("contrasena");
+            }}
+          >
+            Cambiar contraseña
+          </Boton>
+        )}
       </div>
+      {!usuario.tiene_contrasena && (
+        <p className="text-center text-[12px] text-texto-mutado">Entrás con tu cuenta de Google.</p>
+      )}
 
       <Boton variante="peligro" onClick={onCerrarSesion}>
         Cerrar sesión

@@ -150,7 +150,12 @@ class Usuario(SuscripcionMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    contrasena_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # NULL en las cuentas creadas con Google: entran solo por ese proveedor.
+    contrasena_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Identificador estable de la cuenta de Google ("sub" del id_token); el email puede cambiar.
+    google_sub: Mapped[str | None] = mapped_column(
+        String(255), unique=True, nullable=True, index=True
+    )
     nombre_completo: Mapped[str] = mapped_column(String(200), nullable=False)
     rol: Mapped[RolUsuario] = mapped_column(
         Enum(RolUsuario, name="rol_usuario", native_enum=False),
@@ -193,6 +198,10 @@ class Usuario(SuscripcionMixin, Base):
         hay más de uno (Vehiculo.usuario_id no lleva historial, solo el estado
         actual, y nada fuerza a un único vehículo activo a nivel de DB)."""
         return self.vehiculos[0] if self.vehiculos else None
+
+    @property
+    def tiene_contrasena(self) -> bool:
+        return self.contrasena_hash is not None
 
     @property
     def ambito_dueño(self) -> Duenio:

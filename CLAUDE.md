@@ -64,6 +64,7 @@ api/
   routes.py                    # POST /api/v1/optimizar (motor VRP puro, sin persistencia — ver §5)
   validaciones.py               # reglas compartidas por varios schemas (ej. ventana horaria completa y ordenada)
   schemas_auth.py / routes_auth.py     # registro/login/me/invitaciones/perfil/vehículo/contraseña (ver §10)
+  routes_google.py               # login con Google: iniciar/callback/registro pendiente (ver §10)
   schemas_clientes.py / routes_clientes.py     # CRUD de Cliente ("lugares" guardados) — ver §11 (`GET /rutas?fecha=`, `/rutas/{id}`)
   schemas_depositos.py / routes_depositos.py   # CRUD de Deposito — ver §11
   schemas_rutas.py / routes_rutas.py           # optimizar/confirmar/activa/paradas/historial — ver §11
@@ -79,6 +80,7 @@ routing/
 services/
   osrm_client.py                # obtener_matriz_osrm() / obtener_geometria_osrm(): URL desde settings.osrm_base_url
   nominatim_client.py           # geocodificar_inverso() y búsqueda: URL desde settings.nominatim_base_url
+  google_oauth.py               # login con Google: URL de autorización, canje del código y validación del id_token
 scripts/
   preparar_osrm.py              # baja las calles del Gran Mendoza (Overpass, por teselas) y prepara los datos de OSRM
   benchmark_solomon.py          # benchmark VRPTW — TODAVÍA duplica lógica de routing/solver.py (ver §9)
@@ -99,6 +101,7 @@ tests/
                                  # rutas (osrm_falso, armar_chofer_con_lugares, iniciar_ruta_con_paradas, ...)
   test_auth.py / test_perfil.py / test_clientes.py / test_depositos.py / test_rutas.py / test_resumen.py /
   test_incidencias.py / test_entregas_pendientes.py / test_geocoding.py / test_optimizar_vrp.py /
+  test_google_auth.py (canje con Google mockeado) /
   test_solver.py / test_osrm_client.py
                                  # los que arman rutas mockean OSRM con una matriz sintética con floats — no
                                  # dependen del servidor OSRM real
@@ -146,6 +149,7 @@ Clase `Settings` (`pydantic-settings`), leída desde `.env` (ver `.env.example` 
 - `JWT_SECRET_KEY` — sin default, ídem. `JWT_ALGORITHM` (default `HS256`), `JWT_EXPIRE_MINUTES` (default 10080 = 7 días).
 - `ENTORNO` (`desarrollo` | `produccion`) — controla el flag `secure` de la cookie de sesión.
 - `FRONTEND_URL` — usado en `CORSMiddleware` (`allow_origins`), debe matchear el origin real del frontend (`http://localhost:5174`).
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — opcionales; sin ambos el login con Google queda deshabilitado (`GET /api/v1/auth/proveedores` → `google: false` y el botón no aparece). `GOOGLE_REDIRECT_URI` tiene que coincidir con una URI autorizada en Google Cloud; si falta se usa `FRONTEND_URL` + `/api/v1/auth/google/callback` (correcto en producción, donde la API sirve el frontend; en desarrollo va `http://localhost:8000/...`). `GOOGLE_TIMEOUT_SEGUNDOS` (default 10).
 - `NOMINATIM_BASE_URL` — default `https://nominatim.openstreetmap.org` (servidor público, sin API key). Usado solo para geocoding (pin del mapa → texto de dirección, y búsqueda de direcciones) en el alta de `Cliente`/`Deposito`; nunca para el motor VRP en sí.
 
 No hardcodees URLs, timeouts ni límites nuevos — si es un valor que alguien podría querer cambiar sin tocar código, va en `Settings`.
@@ -203,6 +207,7 @@ Basado en las secciones 4.3 y 5 del paper (dataset, validación, métricas empí
 - `frontend/src/paginas/PestanaInicio.tsx` (pestaña "Inicio" de la vista clásica, usada por admin y choferes de empresa) es anterior al panel de escritorio del chofer independiente: solo sabe completar paradas, no registra llegada, ni falla/saltea, ni tiene resumen de cierre.
 - El modo offline es de **solo lectura**: las acciones que escriben se bloquean sin conexión (no se encolan, no todas son idempotentes). Solo la ruta activa y el perfil se guardan localmente; "Mis lugares", historial e incidencias no.
 - `en_riesgo` (ventana por vencer) se calcula sobre el plan y la hora del reloj, no se recalcula con la llegada real, y el resumen informa la distancia *planificada*: no se registra el recorrido real del vehículo.
+- Las cuentas creadas con Google no tienen contraseña (`contrasena_hash` NULL): no pueden definir una ni desvincular Google, y si pierden el acceso a esa cuenta de Google no tienen otra forma de entrar. El registro con Google solo crea choferes independientes (no empresas ni choferes invitados).
 - La sesión no invalida el JWT vigente al cambiar la contraseña (no hay refresh tokens ni lista de sesiones); expira a los 7 días.
 - No hay tests automáticos de componentes de React (solo `npm run build`, `oxlint` y las pruebas de utilidades puras).
 
@@ -217,7 +222,9 @@ Capa para soportar la app PWA (más allá del motor VRP puro). Backend: `db/mode
 
 **Auth/sesión**: JWT (claims `sub`, `rol`, `empresa_id`, `iat`, `exp`) en cookie `httponly` + `samesite=lax`, expira a los 7 días (`JWT_EXPIRE_MINUTES`). `obtener_usuario_actual` (en `api/dependencies.py`) decodifica el token y **siempre revalida contra la DB** (no confía ciegamente en los claims), así un `activo=False` surte efecto inmediato. No hay refresh token — al expirar, re-login manual. No hay rate limiting ni bloqueo de cuenta tras intentos fallidos de login todavía, ni recuperación de contraseña por email.
 
-**Endpoints** (`/api/v1/auth`, prefijo): `POST /registro/chofer-independiente`, `POST /registro/empresa`, `POST /registro/chofer-invitado`, `POST /login`, `POST /logout`, `GET /me`, `PATCH /me` (nombre y teléfono; el email no se edita), `PATCH /me/vehiculo` (solo chofer independiente; capacidad y patente se bloquean con una ruta planificada o en curso), `POST /cambiar-contrasena` (exige la actual), `POST /invitaciones` (rol admin), `GET /invitaciones` (rol admin).
+**Login con Google** (`api/routes_google.py` + `services/google_oauth.py`, sin dependencias nuevas): authorization code flow del lado del servidor. `GET /google/iniciar` deja un `state` en la cookie `google_estado` y redirige a Google; `GET /google/callback` valida el `state`, canjea el código (`requests`) y lee los claims del `id_token` sin verificar firma (llega directo del endpoint de tokens por TLS; se validan `iss`, `aud`, `exp` y `email_verified`). Busca primero por `Usuario.google_sub` y después por email sin distinguir mayúsculas (vincula la cuenta existente, de cualquier rol). Si el email es nuevo **no crea el usuario**: deja un JWT corto (`tipo="registro_google"`, 15 min) en la cookie `registro_google` y redirige a `/registro/google`, donde el chofer completa teléfono y vehículo (`GET /google/registro-pendiente`, `POST /google/completar-registro`). Cada falla del callback es un `ErrorGoogle(codigo)` y vuelve a `/login?error_google=<código>`. `decodificar_token` rechaza cualquier token con `tipo`, así uno de registro nunca sirve como sesión. `UsuarioPublico.tiene_contrasena` indica si la cuenta tiene contraseña.
+
+**Endpoints** (`/api/v1/auth`, prefijo): `POST /registro/chofer-independiente`, `POST /registro/empresa`, `POST /registro/chofer-invitado`, `POST /login`, `POST /logout`, `GET /me`, `PATCH /me` (nombre y teléfono; el email no se edita), `PATCH /me/vehiculo` (solo chofer independiente; capacidad y patente se bloquean con una ruta planificada o en curso), `POST /cambiar-contrasena` (exige la actual; 400 en cuentas de Google), `GET /proveedores`, `GET /google/iniciar`, `GET /google/callback`, `GET /google/registro-pendiente`, `POST /google/completar-registro`, `POST /invitaciones` (rol admin), `GET /invitaciones` (rol admin).
 
 **Frontend**: `frontend/` es un proyecto Vite+React+TS separado (propio `package.json`/`node_modules`, no gestionado por `uv`). Sin `localStorage` para la sesión — el store de Zustand (`useAuthStore`) siempre re-hidrata vía `GET /me` al montar la app; **la única excepción** es abrir la app sin red: si `/me` falla por un error de red (no un 401), se usa la copia del perfil guardada en IndexedDB solo para mostrar la ruta en modo lectura (§11). Estilos: `frontend/src/estilos/` (Tailwind v4 con tokens propios) — colores/tipografía extraídos de un mockup `Active Route View.dc.html` diseñado en Claude Design. El mockup trae azul `#2E5CFF` por defecto, con violeta `#7C3AED` como una de sus 3 opciones de color de acento — esta app usa esa opción violeta como identidad (violeta primario `#7C3AED`, verde éxito `#12B76A` — constante en las 3 opciones del mockup —, `Inter`+`JetBrains Mono`). **Importante**: ese mismo proyecto de Claude Design tiene un design system separado ("Trazo", tema oscuro/verde lima, terminología de levantamiento olímpico) que **no tiene relación con esta app** — no confundirlos ni usar esos tokens.
 
