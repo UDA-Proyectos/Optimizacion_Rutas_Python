@@ -5,7 +5,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # str_strip_whitespace: un valor pegado en el panel del host con un salto de línea de más
+    # (ej. GOOGLE_CLIENT_ID) rompería el login sin ningún error visible.
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", str_strip_whitespace=True
+    )
 
     entorno: str = "desarrollo"  # "desarrollo" | "produccion"
     frontend_url: str = "http://localhost:5173"
