@@ -123,6 +123,10 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
   const clientePorId = new Map(clientes.map((c) => [c.id, c] as const));
   const incidenciasPendientes = incidencias.filter((i) => i.estado === "pendiente").length;
 
+  const horaInicioEnCurso = enCurso?.hora_inicio_real
+    ? new Date(enCurso.hora_inicio_real).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : null;
+
   const subtitulo =
     seccion === "ruta"
       ? ruta
@@ -233,22 +237,32 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
 
       {/* MAIN */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 flex-col gap-2.5 border-b border-borde bg-blanco px-4 py-3 lg:h-16 lg:flex-row lg:items-center lg:gap-4 lg:px-6 lg:py-0">
+        {/* En el celular todo entra en un renglón (acciones como íconos) para dejarle
+            la pantalla al mapa durante la ruta; desde lg vuelven los botones con texto. */}
+        <header className="flex shrink-0 items-center gap-3 border-b border-borde bg-blanco px-4 py-2.5 lg:h-16 lg:gap-4 lg:px-6 lg:py-0">
           <div className="min-w-0 flex-1">
-            <div className="text-base font-bold tracking-tight text-texto-fuerte">
+            <div className="truncate text-base font-bold tracking-tight text-texto-fuerte">
               {TITULOS[seccion]}
             </div>
-            {subtitulo && <div className="text-[11.5px] text-texto-mutado">{subtitulo}</div>}
+            {enCurso && seccion === "ruta" ? (
+              <div className="flex items-center gap-1.5 truncate text-[11.5px] font-semibold text-[#067647] lg:hidden">
+                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-exito" />
+                En ruta{horaInicioEnCurso && ` · desde ${horaInicioEnCurso}`}
+              </div>
+            ) : (
+              subtitulo && <div className="truncate text-[11.5px] text-texto-mutado lg:hidden">{subtitulo}</div>
+            )}
+            {subtitulo && (
+              <div className="hidden truncate text-[11.5px] text-texto-mutado lg:block">{subtitulo}</div>
+            )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {enCurso && (
-              <div className="flex items-center gap-2 rounded-pill border border-[#ABEFC6] bg-exito-tint px-3 py-1.5">
+              <div className="hidden items-center gap-2 rounded-pill border border-[#ABEFC6] bg-exito-tint px-3 py-1.5 lg:flex">
                 <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-exito" />
                 <span className="text-[11.5px] font-semibold text-[#067647]">
-                  En ruta
-                  {enCurso.hora_inicio_real &&
-                    ` · desde ${new Date(enCurso.hora_inicio_real).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                  En ruta{horaInicioEnCurso && ` · desde ${horaInicioEnCurso}`}
                 </span>
               </div>
             )}
@@ -264,9 +278,15 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
                     : "Iniciá tu ruta para reportar una incidencia"
               }
               onClick={() => setReportando(true)}
-              className="h-[38px] rounded-lg border border-borde-input bg-blanco px-3.5 text-[12.5px] font-semibold text-texto-cuerpo disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Reportar incidencia"
+              className="flex h-[38px] w-[38px] items-center justify-center rounded-lg border border-borde-input bg-blanco text-[12.5px] font-semibold text-texto-cuerpo disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto lg:px-3.5"
             >
-              Reportar incidencia
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lg:hidden">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <span className="hidden lg:inline">Reportar incidencia</span>
             </button>
 
             <a
@@ -281,15 +301,17 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
               target="_blank"
               rel="noopener noreferrer"
               aria-disabled={!paradaActual}
+              aria-label="Abrir navegación"
               className={combinarClases(
-                "flex h-[38px] items-center gap-1.5 rounded-lg bg-primario px-4 text-[12.5px] font-bold text-blanco shadow-boton-primario",
+                "flex h-[38px] items-center justify-center gap-1.5 rounded-lg bg-primario px-3 text-[12.5px] font-bold text-blanco shadow-boton-primario lg:px-4",
                 !paradaActual && "pointer-events-none opacity-50",
               )}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="3 11 22 2 13 21 11 13 3 11" />
               </svg>
-              Abrir navegación
+              <span className="lg:hidden">Ir</span>
+              <span className="hidden lg:inline">Abrir navegación</span>
             </a>
           </div>
         </header>

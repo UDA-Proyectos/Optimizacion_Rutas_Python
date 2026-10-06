@@ -214,99 +214,117 @@ function OverlayParadaActual({
   // Estado puramente visual (el selector abierto/cerrado). Se reinicia solo al
   // cambiar de parada porque el padre monta este componente con `key`.
   const [eligiendoMotivo, setEligiendoMotivo] = useState(false);
+  // En el celular la tarjeta arranca compacta (nombre y dirección) para no tapar el mapa;
+  // desde lg siempre se muestra completa.
+  const [detallesAbiertos, setDetallesAbiertos] = useState(false);
   const arribado = paradaActual.hora_real_llegada != null;
   const bloqueado = enviando || sinConexion;
 
   return (
     <>
-      <div className="absolute top-3 right-3 left-3 z-[500] rounded-xl border border-borde bg-white/95 px-3.5 py-3 shadow-md backdrop-blur-[10px]">
-        <div className="mb-1.5 flex items-center gap-2">
+      <div className="absolute top-2 right-2 left-2 z-[500] rounded-xl border border-borde bg-white/95 px-3 py-2.5 shadow-md backdrop-blur-[10px] sm:top-3 sm:right-3 sm:left-3 sm:px-3.5 sm:py-3">
+        <div className="mb-1 flex items-center gap-2 lg:mb-1.5">
           <span className="h-2 w-2 rounded-full bg-primario" />
-          <span className="text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase">
+          <span className="flex-1 text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase">
             Parada actual · {indiceActual + 1} de {totalParadas}
           </span>
+          <button
+            type="button"
+            onClick={() => setDetallesAbiertos((abiertos) => !abiertos)}
+            aria-expanded={detallesAbiertos}
+            className="-my-1 flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-semibold text-primario hover:bg-primario/10 lg:hidden"
+          >
+            {detallesAbiertos ? "Menos" : "Opciones"}
+            <span aria-hidden="true" className={combinarClases("transition-transform", detallesAbiertos && "rotate-180")}>
+              ▾
+            </span>
+          </button>
         </div>
-        <div className="mb-0.5 text-[15px] font-bold tracking-tight text-texto-fuerte">
+        <div className="truncate text-[15px] font-bold tracking-tight text-texto-fuerte lg:mb-0.5 lg:whitespace-normal">
           {paradaActual.nombre_snapshot}
         </div>
-        <div className="mb-1.5 truncate text-[12px] text-texto-mutado">
+        <div className="truncate text-[12px] text-texto-mutado lg:mb-1.5">
           {paradaActual.direccion_snapshot}
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <div className="font-mono text-sm font-bold text-texto-fuerte">
-              {paradaActual.demanda_carga_snapshot} kg
+
+        <div className={combinarClases(detallesAbiertos ? "block" : "hidden", "mt-1.5 lg:mt-0 lg:block")}>
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <div className="font-mono text-sm font-bold text-texto-fuerte">
+                {paradaActual.demanda_carga_snapshot} kg
+              </div>
+              <div className="text-[10px] text-texto-mutado">carga</div>
             </div>
-            <div className="text-[10px] text-texto-mutado">carga</div>
-          </div>
-          {usaVentanasHorarias &&
-            paradaActual.ventana_inicio_snapshot != null && (
-              <>
-                <div className="h-6.5 w-px bg-borde" />
-                <div>
-                  <div className="font-mono text-sm font-bold text-texto-fuerte">
-                    {minutosAHhMm(paradaActual.ventana_inicio_snapshot)}–
-                    {minutosAHhMm(paradaActual.ventana_fin_snapshot ?? 0)}
+            {usaVentanasHorarias &&
+              paradaActual.ventana_inicio_snapshot != null && (
+                <>
+                  <div className="h-6.5 w-px bg-borde" />
+                  <div>
+                    <div className="font-mono text-sm font-bold text-texto-fuerte">
+                      {minutosAHhMm(paradaActual.ventana_inicio_snapshot)}–
+                      {minutosAHhMm(paradaActual.ventana_fin_snapshot ?? 0)}
+                    </div>
+                    <div className="text-[10px] text-texto-mutado">ventana</div>
                   </div>
-                  <div className="text-[10px] text-texto-mutado">ventana</div>
-                </div>
-              </>
-            )}
-          {paradaActual.hora_estimada_llegada != null && (
-            <span
-              className={combinarClases(
-                "inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1",
-                paradaActual.en_riesgo ? "bg-peligro-tint" : "bg-primario/10",
+                </>
               )}
-            >
+            {paradaActual.hora_estimada_llegada != null && (
               <span
                 className={combinarClases(
-                  "h-1.5 w-1.5 rounded-full",
-                  paradaActual.en_riesgo ? "bg-peligro" : "bg-primario",
-                )}
-              />
-              <span
-                className={combinarClases(
-                  "font-mono text-[10.5px] font-semibold whitespace-nowrap",
-                  paradaActual.en_riesgo ? "text-peligro" : "text-[#6428CC]",
+                  "inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1",
+                  paradaActual.en_riesgo ? "bg-peligro-tint" : "bg-primario/10",
                 )}
               >
-                {paradaActual.en_riesgo ? "Riesgo · " : "Llega "}
-                {minutosAHhMm(paradaActual.hora_estimada_llegada)}
+                <span
+                  className={combinarClases(
+                    "h-1.5 w-1.5 rounded-full",
+                    paradaActual.en_riesgo ? "bg-peligro" : "bg-primario",
+                  )}
+                />
+                <span
+                  className={combinarClases(
+                    "font-mono text-[10.5px] font-semibold whitespace-nowrap",
+                    paradaActual.en_riesgo ? "text-peligro" : "text-[#6428CC]",
+                  )}
+                >
+                  {paradaActual.en_riesgo ? "Riesgo · " : "Llega "}
+                  {minutosAHhMm(paradaActual.hora_estimada_llegada)}
+                </span>
               </span>
-            </span>
+            )}
+          </div>
+
+          <div className="mt-2.5 flex gap-2 border-t border-borde pt-2.5">
+            <button
+              type="button"
+              disabled={bloqueado}
+              onClick={() => setEligiendoMotivo((abierto) => !abierto)}
+              className="h-9 flex-1 rounded-lg border border-peligro-borde bg-peligro-tint px-2 text-[12px] font-semibold text-peligro disabled:opacity-60"
+            >
+              No pude entregar
+            </button>
+            <button
+              type="button"
+              disabled={bloqueado || !puedeSaltear}
+              onClick={onSaltear}
+              title={puedeSaltear ? undefined : "Es la única parada que queda"}
+              className="h-9 flex-1 rounded-lg border border-borde-input bg-blanco px-2 text-[12px] font-semibold text-texto-cuerpo disabled:opacity-50"
+            >
+              Saltear
+            </button>
+            <BotonUbicacion gps={gps} />
+          </div>
+
+          {eligiendoMotivo && (
+            <SelectorFallo bloqueado={bloqueado} onFallar={onFallar} />
           )}
         </div>
 
-        <div className="mt-2.5 flex gap-2 border-t border-borde pt-2.5">
-          <button
-            type="button"
-            disabled={bloqueado}
-            onClick={() => setEligiendoMotivo((abierto) => !abierto)}
-            className="h-9 flex-1 rounded-lg border border-peligro-borde bg-peligro-tint px-2 text-[12px] font-semibold text-peligro disabled:opacity-60"
-          >
-            No pude entregar
-          </button>
-          <button
-            type="button"
-            disabled={bloqueado || !puedeSaltear}
-            onClick={onSaltear}
-            title={puedeSaltear ? undefined : "Es la única parada que queda"}
-            className="h-9 flex-1 rounded-lg border border-borde-input bg-blanco px-2 text-[12px] font-semibold text-texto-cuerpo disabled:opacity-50"
-          >
-            Saltear
-          </button>
-          <BotonUbicacion gps={gps} />
-        </div>
         {sinConexion && (
           <p className="mt-2 text-[11px] text-peligro">
             Sin conexión: solo podés mirar la ruta. Las acciones se habilitan al
             volver la señal.
           </p>
-        )}
-
-        {eligiendoMotivo && (
-          <SelectorFallo bloqueado={bloqueado} onFallar={onFallar} />
         )}
       </div>
 
@@ -495,16 +513,18 @@ export function VistaEnCursoRuta({
 
   return (
     <div className="flex min-h-0 flex-col overflow-y-auto lg:h-full lg:flex-row lg:overflow-hidden">
-      <div className="flex min-w-0 flex-col gap-2.5 p-4 sm:p-5 lg:flex-1 lg:overflow-y-auto">
+      {/* En el celular el mapa va primero y ocupa casi toda la pantalla; los indicadores
+          quedan debajo (order-*). Desde lg vuelve el orden del dashboard. */}
+      <div className="flex min-w-0 flex-col gap-2.5 p-2.5 sm:p-5 lg:flex-1 lg:overflow-y-auto">
         {error && <BannerError>{error}</BannerError>}
 
-        <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4">
+        <div className="order-2 grid shrink-0 grid-cols-2 gap-2 lg:order-none lg:grid-cols-4">
           {kpis.map((kpi) => (
             <TarjetaKpi key={kpi.label} {...kpi} />
           ))}
         </div>
 
-        <div className="h-[420px] shrink-0 sm:h-[480px] lg:min-h-[420px] lg:flex-1">
+        <div className="order-1 h-[calc(100dvh-12rem)] min-h-[380px] shrink-0 sm:h-[480px] lg:order-none lg:min-h-[420px] lg:flex-1">
           <MapaRutaActiva
             deposito={ruta.deposito}
             paradas={ruta.paradas}

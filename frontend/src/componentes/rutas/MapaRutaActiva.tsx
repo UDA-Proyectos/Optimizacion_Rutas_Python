@@ -1,7 +1,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { type ReactNode, useEffect, useState } from "react";
-import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, Polyline, TileLayer, ZoomControl, useMap } from "react-leaflet";
 
 import { obtenerGeometriaRutaActiva } from "../../api/rutas";
 import type { DepositoResumen, ParadaRutaPublica } from "../../tipos/ruta";
@@ -10,6 +10,7 @@ import {
   construirUrlGoogleMaps,
   origenNavegacionParaParadaActual,
 } from "../../utilidades/googleMaps";
+import { combinarClases } from "../ui/combinarClases";
 
 const CENTRO_MENDOZA: [number, number] = [-32.8908, -68.8272];
 
@@ -141,8 +142,22 @@ export function MapaRutaActiva({
 
   return (
     <div className="relative h-full overflow-hidden rounded-lg border border-borde bg-superficie-hundida shadow-sm">
-      <div className="h-full">
-        <MapContainer center={CENTRO_MENDOZA} zoom={13} style={{ height: "100%" }}>
+      {/* Con overlay propio (tarjeta arriba, botones abajo) el zoom va abajo a la derecha,
+          por encima de los botones; en pantallas chicas se oculta: ahí se hace zoom con los dedos. */}
+      <div
+        className={combinarClases(
+          "h-full",
+          !overlaySimple &&
+            "[&_.leaflet-bottom.leaflet-right]:mb-[68px] max-lg:[&_.leaflet-control-zoom]:hidden",
+        )}
+      >
+        <MapContainer
+          center={CENTRO_MENDOZA}
+          zoom={13}
+          zoomControl={overlaySimple}
+          style={{ height: "100%" }}
+        >
+          {!overlaySimple && <ZoomControl position="bottomright" />}
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
