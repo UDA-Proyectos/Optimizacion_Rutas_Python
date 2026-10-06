@@ -22,6 +22,7 @@ import type { Seleccion } from "../rutas/FlujoArmarRuta";
 import { RutaDeHoyEscritorio } from "../rutas/RutaDeHoyEscritorio";
 import { BannerConexion } from "../ui/BannerConexion";
 import { combinarClases } from "../ui/combinarClases";
+import { LogoOptiRuta } from "../ui/LogoOptiRuta";
 import { PanelVehiculo } from "../vehiculo/PanelVehiculo";
 import { ItemsNav, type Seccion } from "./NavSidebar";
 
@@ -167,11 +168,7 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blanco">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6428CC" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="3 11 22 2 13 21 11 13 3 11" />
-            </svg>
-          </div>
+          <LogoOptiRuta />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-extrabold tracking-tight text-blanco">OptiRuta</div>
             <div className="hidden text-[9.5px] font-semibold tracking-[0.1em] text-white/60 uppercase lg:block">
@@ -206,11 +203,7 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
           >
             <div className="flex h-14 shrink-0 items-center justify-between gap-2.5 border-b border-white/12 px-4">
               <div className="flex min-w-0 items-center gap-2.5">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blanco">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6428CC" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="3 11 22 2 13 21 11 13 3 11" />
-                  </svg>
-                </div>
+                <LogoOptiRuta />
                 <span className="text-sm font-extrabold tracking-tight text-blanco">OptiRuta</span>
               </div>
               <button
