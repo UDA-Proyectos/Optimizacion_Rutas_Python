@@ -8,6 +8,7 @@ import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-lea
 
 import { type ResultadoBusquedaDireccion, buscarDireccion, geocodificarInverso } from "../../api/geocoding";
 import { CampoContenedor } from "../ui/CampoContenedor";
+import { GestosTactiles } from "./GestosTactiles";
 
 // El bundler no resuelve las rutas relativas que Leaflet usa por defecto
 // para el ícono del pin — hay que apuntarlas a mano a los assets importados.
@@ -167,6 +168,7 @@ export function SelectorUbicacion({
           {hayUbicacion && <Marker position={[latitud, longitud]} icon={iconoMarcador} />}
           <ManejadorClicksMapa onClick={manejarClickMapa} />
           <CentrarMapa latitud={latitud} longitud={longitud} />
+          <GestosTactiles />
         </MapContainer>
       </div>
       {buscando && <span className="mt-1.5 block text-xs text-texto-mutado">Buscando dirección…</span>}

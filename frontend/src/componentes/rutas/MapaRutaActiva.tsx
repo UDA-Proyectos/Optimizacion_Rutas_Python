@@ -10,6 +10,7 @@ import {
   construirUrlGoogleMaps,
   origenNavegacionParaParadaActual,
 } from "../../utilidades/googleMaps";
+import { GestosTactiles } from "../mapa/GestosTactiles";
 import { combinarClases } from "../ui/combinarClases";
 
 const CENTRO_MENDOZA: [number, number] = [-32.8908, -68.8272];
@@ -200,6 +201,7 @@ export function MapaRutaActiva({
           {/* La vista se ajusta solo a la ruta: si incluyera la posición, el
               mapa saltaría en cada actualización del GPS. */}
           <AjustarVista puntos={puntosVisibles} />
+          <GestosTactiles />
         </MapContainer>
       </div>
 
