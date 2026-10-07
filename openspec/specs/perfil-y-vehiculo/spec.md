@@ -44,7 +44,7 @@ El sistema SHALL permitir al chofer independiente modificar el tipo, la patente 
 - **THEN** el sistema responde 422
 
 ### Requirement: Cambiar contraseña
-El sistema SHALL permitir cambiar la contraseña exigiendo la contraseña actual y confirmando la nueva, aplicando las mismas reglas de complejidad que el registro.
+El sistema SHALL permitir cambiar la contraseña exigiendo la contraseña actual y confirmando la nueva, aplicando las mismas reglas de complejidad que el registro. Una cuenta sin contraseña (creada con Google) MUST NOT poder usar este flujo.
 
 #### Scenario: Cambio correcto
 - **WHEN** el chofer envía la contraseña actual correcta y una nueva válida confirmada
@@ -57,6 +57,10 @@ El sistema SHALL permitir cambiar la contraseña exigiendo la contraseña actual
 #### Scenario: Confirmación distinta
 - **WHEN** la nueva contraseña y su confirmación no coinciden
 - **THEN** el sistema responde 422
+
+#### Scenario: Cuenta sin contraseña
+- **WHEN** un usuario cuya cuenta no tiene contraseña intenta cambiarla
+- **THEN** el sistema responde 400 indicando que la cuenta entra con Google, y no le asigna ninguna contraseña
 
 ### Requirement: Alcance por usuario
 El sistema SHALL aplicar estas ediciones únicamente sobre los datos del usuario autenticado.

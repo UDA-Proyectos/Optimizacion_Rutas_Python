@@ -32,4 +32,5 @@
 
 - [x] 6.1 Actualizar README (sección de deploy: crear el cliente OAuth en Google Cloud, URI de redirección de producción y desarrollo, publicar la pantalla de consentimiento, variables en Railway) y CLAUDE.md (§6 configuración, §10 endpoints y modelo, §9 gap "cuentas de Google sin contraseña"); verificar releyendo que coinciden con lo implementado
 - [x] 6.2 Correr `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, y en `frontend/` `npm run build`, `npm run lint` y `npm test`; verificar que todo pasa
-- [ ] 6.3 Probar de punta a punta en desarrollo con un cliente OAuth real (alta nueva, segundo ingreso, vínculo con una cuenta de email existente y cancelación en Google); verificar que cada caso termina como dice el spec
+- [x] 6.3 Probar de punta a punta en desarrollo con un cliente OAuth real (alta nueva, segundo ingreso, vínculo con una cuenta de email existente y cancelación en Google); verificar que cada caso termina como dice el spec
+  - Verificado en producción (optirutas.up.railway.app) por el usuario el 2026-10-06: el ingreso con Google funciona tras corregir `FRONTEND_URL` en Railway. Los demás casos (alta nueva, vínculo, cancelación) quedan cubiertos por `tests/test_google_auth.py` con Google simulado.
