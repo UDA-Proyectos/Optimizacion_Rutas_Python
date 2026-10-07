@@ -26,6 +26,8 @@ class IncidenciaPublica(BaseModel):
     fecha_hora: datetime
     ruta_id: uuid.UUID
     ruta_fecha: date
+    # Chofer de la ruta: el admin ve las incidencias de toda su flota.
+    chofer_nombre: str
     parada_id: uuid.UUID | None
     # Del snapshot de la parada, para que siga mostrándose aunque el cliente
     # se borre de la libreta.

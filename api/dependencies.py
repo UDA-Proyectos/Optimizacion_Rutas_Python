@@ -11,7 +11,9 @@ __all__ = [
     "get_db",
     "obtener_usuario_actual",
     "requiere_admin",
+    "requiere_chofer",
     "requiere_chofer_independiente",
+    "requiere_planificador",
 ]
 
 
@@ -53,4 +55,20 @@ def requiere_chofer_independiente(usuario: Usuario = Depends(obtener_usuario_act
             status_code=403,
             detail="Los choferes de empresa reciben la ruta asignada por su empresa.",
         )
+    return usuario
+
+
+def requiere_chofer(usuario: Usuario = Depends(obtener_usuario_actual)) -> Usuario:
+    """Cualquier chofer, independiente o de empresa: ejecutar rutas, consultar las propias."""
+    if usuario.rol != RolUsuario.CHOFER:
+        raise HTTPException(status_code=403, detail="Esta acción es para choferes.")
+    return usuario
+
+
+def requiere_planificador(usuario: Usuario = Depends(obtener_usuario_actual)) -> Usuario:
+    """Quien arma rutas y gestiona la libreta (lugares, depósitos, entregas reprogramadas):
+    el chofer independiente para sí mismo y el admin para su empresa. El chofer de
+    empresa ejecuta lo que le asignan y solo consulta."""
+    if usuario.rol == RolUsuario.CHOFER and usuario.empresa_id is not None:
+        raise HTTPException(status_code=403, detail="Esto lo gestiona tu empresa.")
     return usuario

@@ -2,9 +2,9 @@ import secrets
 import string
 import uuid
 from datetime import UTC, date, datetime
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from db.modelos import (
@@ -113,6 +113,34 @@ def obtener_usuario_por_google_sub(db: Session, google_sub: str) -> Usuario | No
 def vincular_google(db: Session, usuario: Usuario, google_sub: str) -> Usuario:
     usuario.google_sub = google_sub
     return guardar(db, usuario)
+
+
+class ResumenChofer(NamedTuple):
+    chofer: Usuario
+    rutas_del_dia: int
+    tiene_ruta_en_curso: bool
+
+
+def listar_choferes_de_empresa(
+    db: Session, empresa_id: uuid.UUID, fecha: date
+) -> list[ResumenChofer]:
+    """Choferes de la empresa con cuántas rutas (no canceladas) tienen en `fecha` y si
+    tienen alguna en curso, en una sola query."""
+    rutas_del_dia = (
+        select(Ruta.chofer_id, func.count().label("cantidad"))
+        .where(Ruta.fecha == fecha, Ruta.estado != EstadoRuta.CANCELADA)
+        .group_by(Ruta.chofer_id)
+        .subquery()
+    )
+    en_curso = exists().where(Ruta.chofer_id == Usuario.id, Ruta.estado == EstadoRuta.EN_CURSO)
+    filas = db.execute(
+        select(Usuario, func.coalesce(rutas_del_dia.c.cantidad, 0), en_curso)
+        .outerjoin(rutas_del_dia, rutas_del_dia.c.chofer_id == Usuario.id)
+        .where(Usuario.empresa_id == empresa_id, Usuario.rol == RolUsuario.CHOFER)
+        .options(selectinload(Usuario.vehiculos))
+        .order_by(Usuario.nombre_completo)
+    ).all()
+    return [ResumenChofer(chofer, cantidad, bool(activa)) for chofer, cantidad, activa in filas]
 
 
 def obtener_vehiculo_por_patente(db: Session, patente: str) -> Vehiculo | None:
@@ -241,10 +269,12 @@ def marcar_codigo_usado(db: Session, invitacion: CodigoInvitacion, usuario_id: u
     guardar(db, invitacion)
 
 
-def _condicion_dueño(modelo: type[Cliente] | type[Deposito], duenio: Duenio):
+def _condicion_dueño(
+    modelo: type[Cliente] | type[Deposito] | type[EntregaPendiente], duenio: Duenio
+):
     """Condición SQL de dueño, compartida por cualquier modelo con
-    DuenioMixin (hoy Cliente y Deposito) — un solo lugar donde vive el
-    filtro, en vez de repetirlo por modelo."""
+    DuenioMixin (Cliente, Deposito, EntregaPendiente) — un solo lugar donde
+    vive el filtro, en vez de repetirlo por modelo."""
     return (
         modelo.empresa_id == duenio.empresa_id
         if duenio.empresa_id
@@ -406,6 +436,7 @@ def hay_ruta_abierta(db: Session, chofer_id: uuid.UUID) -> bool:
 def crear_ruta(
     db: Session,
     chofer: Usuario,
+    creado_por: Usuario,
     vehiculo: Vehiculo,
     deposito: Deposito,
     fecha: date,
@@ -424,7 +455,7 @@ def crear_ruta(
             chofer_id=chofer.id,
             vehiculo_id=vehiculo.id,
             deposito_id=deposito.id,
-            creado_por_usuario_id=chofer.id,
+            creado_por_usuario_id=creado_por.id,
             fecha=fecha,
             nombre=nombre,
             tipo_problema=tipo_problema,
@@ -482,6 +513,77 @@ def listar_rutas_historial(
 def obtener_ruta_propia(db: Session, chofer_id: uuid.UUID, ruta_id: uuid.UUID) -> Ruta | None:
     return db.execute(
         select(Ruta).where(Ruta.id == ruta_id, Ruta.chofer_id == chofer_id)
+    ).scalar_one_or_none()
+
+
+def _rutas_de_empresa(empresa_id: uuid.UUID):
+    return (
+        select(Ruta)
+        .join(Usuario, Usuario.id == Ruta.chofer_id)
+        .where(Usuario.empresa_id == empresa_id)
+    )
+
+
+def listar_rutas_de_empresa(db: Session, empresa_id: uuid.UUID, fecha: date) -> list[Ruta]:
+    """Rutas no canceladas de toda la flota en `fecha`, con paradas, chofer e incidencias
+    precargados (una consulta por relación, no una por ruta)."""
+    return list(
+        db.execute(
+            _rutas_de_empresa(empresa_id)
+            .where(Ruta.fecha == fecha, Ruta.estado != EstadoRuta.CANCELADA)
+            .order_by(Usuario.nombre_completo, Ruta.fecha_creacion)
+            .options(
+                selectinload(Ruta.paradas),
+                selectinload(Ruta.incidencias),
+                joinedload(Ruta.chofer),
+            )
+        ).scalars()
+    )
+
+
+def listar_historial_de_empresa(
+    db: Session,
+    empresa_id: uuid.UUID,
+    desde: date,
+    hasta: date,
+    chofer_id: uuid.UUID | None = None,
+) -> list[Ruta]:
+    consulta = _rutas_de_empresa(empresa_id).where(Ruta.fecha.between(desde, hasta))
+    if chofer_id is not None:
+        consulta = consulta.where(Ruta.chofer_id == chofer_id)
+    return list(
+        db.execute(
+            consulta.order_by(Ruta.fecha.desc(), Ruta.fecha_creacion.desc()).options(
+                selectinload(Ruta.paradas),
+                selectinload(Ruta.incidencias),
+                joinedload(Ruta.chofer),
+            )
+        ).scalars()
+    )
+
+
+def obtener_ruta_de_empresa(db: Session, empresa_id: uuid.UUID, ruta_id: uuid.UUID) -> Ruta | None:
+    """Una ruta de cualquier chofer de la empresa (la condición va en el WHERE)."""
+    return db.execute(_rutas_de_empresa(empresa_id).where(Ruta.id == ruta_id)).scalar_one_or_none()
+
+
+def obtener_ruta_gestionable(db: Session, usuario: Usuario, ruta_id: uuid.UUID) -> Ruta | None:
+    """La ruta que `usuario` puede editar o cancelar: la propia del chofer, o cualquiera de
+    la flota para el admin. Mismo criterio de alcance que `_incidencias_visibles`."""
+    if usuario.rol == RolUsuario.ADMIN:
+        return obtener_ruta_de_empresa(db, usuario.empresa_id, ruta_id)
+    return obtener_ruta_propia(db, usuario.id, ruta_id)
+
+
+def obtener_chofer_de_empresa(
+    db: Session, empresa_id: uuid.UUID, chofer_id: uuid.UUID
+) -> Usuario | None:
+    return db.execute(
+        select(Usuario).where(
+            Usuario.id == chofer_id,
+            Usuario.empresa_id == empresa_id,
+            Usuario.rol == RolUsuario.CHOFER,
+        )
     ).scalar_one_or_none()
 
 
@@ -563,19 +665,35 @@ def crear_incidencia(
     )
 
 
-def listar_incidencias_de_chofer(
+def _incidencias_visibles(usuario: Usuario):
+    """Las incidencias que ve `usuario`: el chofer, las que reportó; el admin, las de las
+    rutas de cualquier chofer de su empresa."""
+    if usuario.rol == RolUsuario.ADMIN:
+        return (
+            select(Incidencia)
+            .join(Ruta, Ruta.id == Incidencia.ruta_id)
+            .join(Usuario, Usuario.id == Ruta.chofer_id)
+            .where(Usuario.empresa_id == usuario.empresa_id)
+        )
+    return select(Incidencia).where(Incidencia.reportado_por_usuario_id == usuario.id)
+
+
+def listar_incidencias(
     db: Session,
-    chofer_id: uuid.UUID,
+    usuario: Usuario,
     limite: int = 100,
     desplazamiento: int = 0,
     estado: EstadoIncidencia | None = None,
 ) -> list[Incidencia]:
-    consulta = select(Incidencia).where(Incidencia.reportado_por_usuario_id == chofer_id)
+    consulta = _incidencias_visibles(usuario)
     if estado is not None:
         consulta = consulta.where(Incidencia.estado == estado)
     return list(
         db.execute(
-            consulta.options(joinedload(Incidencia.ruta), joinedload(Incidencia.parada))
+            consulta.options(
+                joinedload(Incidencia.ruta).joinedload(Ruta.chofer),
+                joinedload(Incidencia.parada),
+            )
             .order_by(Incidencia.fecha_hora.desc())
             .limit(limite)
             .offset(desplazamiento)
@@ -583,13 +701,11 @@ def listar_incidencias_de_chofer(
     )
 
 
-def obtener_incidencia_propia(
-    db: Session, incidencia_id: uuid.UUID, chofer_id: uuid.UUID
+def obtener_incidencia_visible(
+    db: Session, usuario: Usuario, incidencia_id: uuid.UUID
 ) -> Incidencia | None:
     return db.execute(
-        select(Incidencia).where(
-            Incidencia.id == incidencia_id, Incidencia.reportado_por_usuario_id == chofer_id
-        )
+        _incidencias_visibles(usuario).where(Incidencia.id == incidencia_id)
     ).scalar_one_or_none()
 
 
@@ -624,14 +740,17 @@ def _resolver(db: Session, incidencia: Incidencia, resolucion: ResolucionInciden
 
 
 def reprogramar_entrega(
-    db: Session, usuario: Usuario, parada: ParadaRuta, incidencia: Incidencia
+    db: Session, parada: ParadaRuta, incidencia: Incidencia
 ) -> EntregaPendiente:
     """Guarda la entrega de una parada fallida para la próxima ruta (con un
-    snapshot de lo que había que entregar) y resuelve la incidencia."""
+    snapshot de lo que había que entregar) y resuelve la incidencia. Queda del
+    mismo dueño que los lugares del chofer de la ruta: él o su empresa."""
+    duenio = parada.ruta.chofer.ambito_dueño
     entrega = guardar(
         db,
         EntregaPendiente(
-            usuario_id=usuario.id,
+            empresa_id=duenio.empresa_id,
+            usuario_id=duenio.usuario_id,
             cliente_id=parada.cliente_id,
             parada_origen_id=parada.id,
             incidencia_id=incidencia.id,
@@ -650,14 +769,14 @@ def cerrar_incidencia(db: Session, incidencia: Incidencia) -> Incidencia:
     return incidencia
 
 
-def listar_entregas_pendientes(db: Session, usuario_id: uuid.UUID) -> list[EntregaPendiente]:
-    """Las del chofer todavía sin cumplir, de lugares que siguen en su libreta."""
+def listar_entregas_pendientes(db: Session, duenio: Duenio) -> list[EntregaPendiente]:
+    """Las del dueño todavía sin cumplir, de lugares que siguen en su libreta."""
     return list(
         db.execute(
             select(EntregaPendiente)
             .join(Cliente, Cliente.id == EntregaPendiente.cliente_id)
             .where(
-                EntregaPendiente.usuario_id == usuario_id,
+                _condicion_dueño(EntregaPendiente, duenio),
                 EntregaPendiente.estado == EstadoEntregaPendiente.PENDIENTE,
                 Cliente.activo.is_(True),
             )
@@ -667,13 +786,13 @@ def listar_entregas_pendientes(db: Session, usuario_id: uuid.UUID) -> list[Entre
 
 
 def marcar_entregas_incluidas(
-    db: Session, usuario_id: uuid.UUID, ruta: Ruta, cliente_ids: list[uuid.UUID]
+    db: Session, duenio: Duenio, ruta: Ruta, cliente_ids: list[uuid.UUID]
 ) -> None:
     """Da por cumplidas las entregas pendientes de los lugares que la ruta
     confirmada contiene."""
     pendientes = db.execute(
         select(EntregaPendiente).where(
-            EntregaPendiente.usuario_id == usuario_id,
+            _condicion_dueño(EntregaPendiente, duenio),
             EntregaPendiente.estado == EstadoEntregaPendiente.PENDIENTE,
             EntregaPendiente.cliente_id.in_(cliente_ids),
         )
@@ -723,7 +842,7 @@ def fallar_parada(
         parada=parada,
     )
     if reprogramar:
-        reprogramar_entrega(db, reportado_por, parada, incidencia)
+        reprogramar_entrega(db, parada, incidencia)
 
     _avanzar_ruta(db, ruta)
     return ruta

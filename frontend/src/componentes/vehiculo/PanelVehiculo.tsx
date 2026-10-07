@@ -10,12 +10,14 @@ import { FormularioVehiculo } from "./FormularioVehiculo";
 interface Props {
   usuario: UsuarioPublico;
   ruta: RutaPublica | null;
+  /** El chofer de empresa ve su vehículo pero no lo edita. */
+  editable: boolean;
 }
 
 /** Muestra los datos reales que carga el registro (ver usuario.vehiculo) y
  * permite editarlos, sin inventar campos que la app no trackea (VTV, seguro,
  * mantenimiento). */
-export function PanelVehiculo({ usuario, ruta }: Props) {
+export function PanelVehiculo({ usuario, ruta, editable }: Props) {
   const vehiculo = usuario.vehiculo;
   const [editando, setEditando] = useState(false);
 
@@ -107,9 +109,11 @@ export function PanelVehiculo({ usuario, ruta }: Props) {
         </div>
       </div>
 
-      <Boton variante="secundario" onClick={() => setEditando(true)}>
-        Editar vehículo
-      </Boton>
+      {editable && (
+        <Boton variante="secundario" onClick={() => setEditando(true)}>
+          Editar vehículo
+        </Boton>
+      )}
     </div>
   );
 }

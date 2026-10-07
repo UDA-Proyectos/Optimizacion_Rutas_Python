@@ -10,7 +10,7 @@ function suscribir(avisar: () => void) {
 }
 
 /** `navigator.onLine`: solo sabe si el dispositivo tiene *una* red, no que el
- * servidor responda — por eso useRutaActiva también cuenta un pedido fallido
+ * servidor responda — por eso useRutasDelDia también cuenta un pedido fallido
  * como "sin conexión". */
 export function useEnLinea(): boolean {
   return useSyncExternalStore(

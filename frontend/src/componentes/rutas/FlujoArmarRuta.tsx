@@ -51,6 +51,8 @@ interface Props {
   /** Recibe la ruta guardada, para que la pantalla se ubique en su día. */
   onConfirmada: (ruta: RutaPublica) => void;
   onCancelar: () => void;
+  /** Solo el admin: chofer de la flota al que se le asigna la ruta. */
+  choferId?: string;
 }
 
 type Vista = "cargando" | "deposito" | "seleccion" | "preview";
@@ -112,6 +114,7 @@ export function FlujoArmarRuta({
   seleccionInicial,
   onConfirmada,
   onCancelar,
+  choferId,
 }: Props) {
   const modoEdicion = rutaEdicion != null;
   const [fecha, setFecha] = useState(rutaEdicion?.fecha ?? fechaInicial ?? hoyLocal());
@@ -239,6 +242,7 @@ export function FlujoArmarRuta({
       deposito_id: depositoId || null,
       fecha,
       nombre: nombre.trim() || null,
+      chofer_id: choferId,
     };
   }
 

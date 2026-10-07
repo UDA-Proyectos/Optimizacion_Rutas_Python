@@ -29,15 +29,19 @@ export type AccionPendiente =
 
 interface Props {
   /** Se llama con la ruta guardada, para que "Mis rutas" se ubique en su día. */
-  onRutaConfirmada: (ruta: RutaPublica) => void;
+  onRutaConfirmada?: (ruta: RutaPublica) => void;
   accionPendiente?: AccionPendiente;
   onAccionPendienteConsumida?: () => void;
+  /** Libreta compartida de una empresa (la gestiona el admin): las rutas se arman desde
+   * su propia sección, no desde acá. */
+  deEmpresa?: boolean;
 }
 
 export function PestanaLugares({
   onRutaConfirmada,
   accionPendiente,
   onAccionPendienteConsumida,
+  deEmpresa = false,
 }: Props) {
   const [clientes, setClientes] = useState<ClientePublico[]>([]);
   const [deposito, setDeposito] = useState<DepositoPublico | null>(null);
@@ -128,7 +132,7 @@ export function PestanaLugares({
   async function manejarRutaGuardada(ruta: RutaPublica) {
     setVista("lista");
     await recargar();
-    onRutaConfirmada(ruta);
+    onRutaConfirmada?.(ruta);
   }
 
   if (vista === "formulario") {
@@ -169,13 +173,15 @@ export function PestanaLugares({
       {!cargando && (
         <TarjetaContenido>
           <CabeceraTarjeta>
-            <TituloTarjeta>Mi depósito</TituloTarjeta>
+            <TituloTarjeta>{deEmpresa ? "Depósito de la empresa" : "Mi depósito"}</TituloTarjeta>
             <Enlace onClick={abrirDeposito}>{deposito ? "Editar" : "+ Agregar"}</Enlace>
           </CabeceraTarjeta>
           <p className="text-[12.5px] text-texto-mutado">
             {deposito
-              ? `${deposito.nombre} — de acá parten y a acá vuelven tus rutas.`
-              : "Todavía no marcaste de dónde salís y a dónde volvés cada día."}
+              ? `${deposito.nombre} — de acá parten y a acá vuelven ${deEmpresa ? "las rutas de la flota" : "tus rutas"}.`
+              : deEmpresa
+                ? "Todavía no marcaste de dónde salen y a dónde vuelven los choferes."
+                : "Todavía no marcaste de dónde salís y a dónde volvés cada día."}
           </p>
         </TarjetaContenido>
       )}
@@ -184,17 +190,20 @@ export function PestanaLugares({
         <Boton variante="secundario" onClick={abrirNuevo}>
           + Agregar lugar
         </Boton>
-        <Boton onClick={abrirArmarRutaNueva} disabled={clientes.length === 0}>
-          Armar ruta
-        </Boton>
+        {!deEmpresa && (
+          <Boton onClick={abrirArmarRutaNueva} disabled={clientes.length === 0}>
+            Armar ruta
+          </Boton>
+        )}
       </div>
 
       {cargando ? (
         <TextoVacio>Cargando…</TextoVacio>
       ) : clientes.length === 0 ? (
         <TextoVacio>
-          Todavía no guardaste ningún lugar. Agregá las direcciones que visitás seguido para no
-          tener que cargarlas cada vez.
+          {deEmpresa
+            ? "Todavía no hay lugares cargados. Agregá los clientes que visita la flota y quedan disponibles para armar las rutas de cualquier chofer."
+            : "Todavía no guardaste ningún lugar. Agregá las direcciones que visitás seguido para no tener que cargarlas cada vez."}
         </TextoVacio>
       ) : (
         <ul className="flex flex-col gap-2.5 xl:grid xl:grid-cols-2 xl:gap-3">

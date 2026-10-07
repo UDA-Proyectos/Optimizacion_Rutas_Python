@@ -1,85 +1,55 @@
-import type { ClientePublico } from "../../tipos/cliente";
-import type { RutaPublica } from "../../tipos/ruta";
-import { combinarClases } from "../ui/combinarClases";
-import {
-  IconoCuenta,
-  IconoHistorial,
-  IconoIncidencias,
-  IconoLugares,
-  IconoRuta,
-  IconoVehiculo,
-} from "./iconosNav";
+import type { ReactNode } from "react";
 
-export type Seccion = "ruta" | "lugares" | "historial" | "vehiculo" | "incidencias" | "cuenta";
+import { combinarClases } from "../ui/combinarClases";
+
+export interface ItemNav<S extends string> {
+  id: S;
+  etiqueta: string;
+  icono: ReactNode;
+  badge?: string;
+}
+
+export interface GrupoNav<S extends string> {
+  titulo: string;
+  items: ItemNav<S>[];
+}
 
 /** El mismo nav se usa tal cual en el sidebar fijo de escritorio y en el
- * drawer de mobile (EscritorioChofer.tsx) — un solo lugar donde vive la
- * lista, en vez de dos copias que se puedan desincronizar. */
-export function ItemsNav({
+ * drawer de mobile (ShellEscritorio.tsx); cada escritorio declara sus grupos
+ * de secciones como datos. */
+export function ItemsNav<S extends string>({
+  grupos,
   seccion,
-  ruta,
-  clientes,
-  incidenciasPendientes,
   onSeleccionar,
 }: {
-  seccion: Seccion;
-  ruta: RutaPublica | null;
-  clientes: ClientePublico[];
-  incidenciasPendientes: number;
-  onSeleccionar: (seccion: Seccion) => void;
+  grupos: GrupoNav<S>[];
+  seccion: S;
+  onSeleccionar: (seccion: S) => void;
 }) {
   return (
     <>
-      <p className="px-2.5 pt-1.5 pb-2 text-[9.5px] font-bold tracking-[0.12em] text-white/58 uppercase">
-        Mi jornada
-      </p>
-      <BotonNav
-        activo={seccion === "ruta"}
-        onClick={() => onSeleccionar("ruta")}
-        icono={<IconoRuta />}
-        etiqueta="Mis rutas"
-        badge={ruta ? String(ruta.paradas.length) : undefined}
-      />
-      <BotonNav
-        activo={seccion === "lugares"}
-        onClick={() => onSeleccionar("lugares")}
-        icono={<IconoLugares />}
-        etiqueta="Mis lugares"
-        badge={clientes.length > 0 ? String(clientes.length) : undefined}
-      />
-
-      <p className="px-2.5 pt-4.5 pb-2 text-[9.5px] font-bold tracking-[0.12em] text-white/58 uppercase">
-        Mi operación
-      </p>
-      <BotonNav
-        activo={seccion === "historial"}
-        onClick={() => onSeleccionar("historial")}
-        icono={<IconoHistorial />}
-        etiqueta="Historial de rutas"
-      />
-      <BotonNav
-        activo={seccion === "vehiculo"}
-        onClick={() => onSeleccionar("vehiculo")}
-        icono={<IconoVehiculo />}
-        etiqueta="Mi vehículo"
-      />
-      <BotonNav
-        activo={seccion === "incidencias"}
-        onClick={() => onSeleccionar("incidencias")}
-        icono={<IconoIncidencias />}
-        etiqueta="Incidencias"
-        badge={incidenciasPendientes > 0 ? String(incidenciasPendientes) : undefined}
-      />
-
-      <p className="px-2.5 pt-4.5 pb-2 text-[9.5px] font-bold tracking-[0.12em] text-white/58 uppercase">
-        Cuenta
-      </p>
-      <BotonNav
-        activo={seccion === "cuenta"}
-        onClick={() => onSeleccionar("cuenta")}
-        icono={<IconoCuenta />}
-        etiqueta="Mi cuenta"
-      />
+      {grupos.map((grupo, indice) => (
+        <div key={grupo.titulo} className="flex flex-col gap-0.5">
+          <p
+            className={combinarClases(
+              "px-2.5 pb-2 text-[9.5px] font-bold tracking-[0.12em] text-white/58 uppercase",
+              indice === 0 ? "pt-1.5" : "pt-4.5",
+            )}
+          >
+            {grupo.titulo}
+          </p>
+          {grupo.items.map((item) => (
+            <BotonNav
+              key={item.id}
+              activo={seccion === item.id}
+              onClick={() => onSeleccionar(item.id)}
+              icono={item.icono}
+              etiqueta={item.etiqueta}
+              badge={item.badge}
+            />
+          ))}
+        </div>
+      ))}
     </>
   );
 }
@@ -93,7 +63,7 @@ function BotonNav({
 }: {
   activo: boolean;
   onClick: () => void;
-  icono: React.ReactNode;
+  icono: ReactNode;
   etiqueta: string;
   badge?: string;
 }) {

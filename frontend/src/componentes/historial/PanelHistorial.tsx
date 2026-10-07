@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 
+import { obtenerHistorialDeLaFlota, obtenerRutaDeLaFlota } from "../../api/empresa";
 import { obtenerHistorialRutas, obtenerRutaHistorial } from "../../api/rutas";
 import type { ClientePublico } from "../../tipos/cliente";
 import type { RutaHistorialItem, RutaPublica } from "../../tipos/ruta";
+import { ETIQUETA_ESTADO_RUTA } from "../../utilidades/estadosRuta";
 import { minutosAHhMm } from "../../utilidades/horario";
 import { ETIQUETA_MOTIVO } from "../../utilidades/motivosFallo";
 import type { Seleccion } from "../rutas/FlujoArmarRuta";
@@ -12,16 +14,13 @@ import { BannerError } from "../ui/Formulario";
 import { TextoVacio } from "../ui/TextoVacio";
 import { Almanaque } from "./Almanaque";
 
-const ETIQUETA_ESTADO: Record<RutaHistorialItem["estado"], string> = {
-  planificada: "Planificada",
-  en_curso: "En curso",
-  completada: "Completada",
-  cancelada: "Cancelada",
-};
-
 interface Props {
   clientes: ClientePublico[];
-  onUsarDeNuevo: (datos: { seleccion: Seleccion; usaVentanasHorarias: boolean }) => void;
+  /** Sin esto (quien mira no arma rutas) no se ofrece copiar la ruta. */
+  onUsarDeNuevo?: (datos: { seleccion: Seleccion; usaVentanasHorarias: boolean }) => void;
+  /** Historial de toda la flota (admin), opcionalmente de un solo chofer; muestra el
+   * chofer de cada ruta. Para cambiar de chofer, el llamador remonta con `key`. */
+  flota?: { choferId?: string };
 }
 
 function primerYUltimoDia(anio: number, mes: number): [string, string] {
@@ -30,7 +29,7 @@ function primerYUltimoDia(anio: number, mes: number): [string, string] {
   return [`${anio}-${pad(mes)}-01`, `${anio}-${pad(mes)}-${pad(ultimoDia)}`];
 }
 
-export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
+export function PanelHistorial({ clientes, onUsarDeNuevo, flota }: Props) {
   const hoy = new Date();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mes, setMes] = useState(hoy.getMonth() + 1);
@@ -49,19 +48,24 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
     // oxlint-disable-next-line react/set-state-in-effect
     setCargandoMes(true);
     const [desde, hasta] = primerYUltimoDia(anio, mes);
-    obtenerHistorialRutas(desde, hasta)
+    const pedido = flota
+      ? obtenerHistorialDeLaFlota(desde, hasta, flota.choferId)
+      : obtenerHistorialRutas(desde, hasta);
+    pedido
       .then(setRutas)
       .finally(() => setCargandoMes(false));
     setDiaSeleccionado(null);
     setDetalle(null);
     setRutaIdSeleccionada(null);
+    // `flota` no cambia en la vida del componente (ver su comentario).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anio, mes]);
 
   function abrirRuta(id: string) {
     setRutaIdSeleccionada(id);
     setCargandoDetalle(true);
     setError(null);
-    obtenerRutaHistorial(id)
+    (flota ? obtenerRutaDeLaFlota(id) : obtenerRutaHistorial(id))
       .then(setDetalle)
       .catch(() => setError("No se pudo abrir esa ruta."))
       .finally(() => setCargandoDetalle(false));
@@ -94,7 +98,7 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
       };
     }
 
-    onUsarDeNuevo({ seleccion, usaVentanasHorarias: detalle.usa_ventanas_horarias });
+    onUsarDeNuevo?.({ seleccion, usaVentanasHorarias: detalle.usa_ventanas_horarias });
   }
 
   const excluidos = detalle
@@ -122,7 +126,9 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
         ) : !diaSeleccionado ? (
           <TextoVacio>
             {rutas.length === 0
-              ? "No hiciste ninguna ruta este mes."
+              ? flota
+                ? "No hubo rutas este mes."
+                : "No hiciste ninguna ruta este mes."
               : "Elegí un día del calendario para ver esa ruta."}
           </TextoVacio>
         ) : cargandoDetalle ? (
@@ -147,7 +153,8 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
                           : "rounded-pill border border-borde-input bg-blanco px-3 py-1.5 text-[12px] font-semibold text-texto-cuerpo"
                       }
                     >
-                      {r.nombre ?? `Ruta ${indice + 1}`} · {ETIQUETA_ESTADO[r.estado]}
+                      {flota && `${r.chofer_nombre} · `}
+                      {r.nombre ?? `Ruta ${indice + 1}`} · {ETIQUETA_ESTADO_RUTA[r.estado]}
                     </button>
                   ))}
                 </div>
@@ -157,9 +164,10 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
                   <p className="text-sm font-bold text-texto-fuerte">
                     {detalle.fecha}
                     {detalle.nombre && ` · ${detalle.nombre}`}
+                    {flota && ` · ${detalle.chofer_nombre}`}
                   </p>
                   <span className="rounded-pill bg-fondo px-2.5 py-1 text-[11px] font-semibold text-texto-cuerpo">
-                    {ETIQUETA_ESTADO[detalle.estado]}
+                    {ETIQUETA_ESTADO_RUTA[detalle.estado]}
                   </span>
                 </div>
                 <p className="font-mono text-[12.5px] text-texto-cuerpo">
@@ -207,7 +215,7 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
                 ))}
               </ol>
 
-              {excluidos > 0 && (
+              {onUsarDeNuevo && excluidos > 0 && (
                 <p className="text-[11.5px] text-texto-tenue">
                   {excluidos} lugar{excluidos > 1 ? "es" : ""} de esa ruta ya no existe
                   {excluidos > 1 ? "n" : ""} en tu libreta — no se incluir
@@ -215,13 +223,15 @@ export function PanelHistorial({ clientes, onUsarDeNuevo }: Props) {
                 </p>
               )}
 
-              <Boton
-                tamanio="auto"
-                disabled={detalle.paradas.length - excluidos === 0}
-                onClick={usarDeNuevo}
-              >
-                Usar esta ruta de nuevo
-              </Boton>
+              {onUsarDeNuevo && (
+                <Boton
+                  tamanio="auto"
+                  disabled={detalle.paradas.length - excluidos === 0}
+                  onClick={usarDeNuevo}
+                >
+                  Usar esta ruta de nuevo
+                </Boton>
+              )}
             </div>
           )
         )}

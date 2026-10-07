@@ -14,7 +14,7 @@ Resuelve dos variantes del problema:
 
 **Evolución del alcance**: además del motor VRP (el aporte académico del paper), el proyecto es una app web PWA real para choferes de reparto — con cuentas de usuario, empresas de distribución que gestionan flotas de choferes, y (a futuro) planes de suscripción. El motor VRP y su validación empírica siguen siendo el núcleo del paper; la capa de cuentas/auth/frontend es la plataforma que lo pone en manos de usuarios reales. Ver §10 y §11.
 
-**Estado actual**: el motor VRP (API + solver + benchmarks) es un prototipo funcional, con tests del solver y del cliente OSRM. Están implementados: las fundaciones (`uv`, `core/config.py`, Docker para Postgres, `pytest`, `ruff`), el sistema de autenticación, y el flujo completo del chofer independiente (libreta de lugares, armado de ruta CVRP/VRPTW, ejecución parada por parada con fallos/saltos/incidencias, resumen de cierre, historial, edición de perfil y vehículo, modo offline de solo lectura y ubicación del dispositivo) — ver §10 y §11. Sigue pendiente: generalizar el solver de benchmarks (ítem 5 del roadmap), PyVRP y el dataset del Gran Mendoza (ítems 8-9), y todo lo de empresa (§10, "Fuera de alcance").
+**Estado actual**: el motor VRP (API + solver + benchmarks) es un prototipo funcional, con tests del solver y del cliente OSRM. Están implementados: las fundaciones (`uv`, `core/config.py`, Docker para Postgres, `pytest`, `ruff`), el sistema de autenticación (con login de Google), la vista de empresa (admin que gestiona choferes, lugares, asigna rutas y sigue a su flota; chofer de empresa que ejecuta lo asignado — §10), y el flujo completo del chofer independiente (libreta de lugares, armado de ruta CVRP/VRPTW, ejecución parada por parada con fallos/saltos/incidencias, resumen de cierre, historial, edición de perfil y vehículo, modo offline de solo lectura y ubicación del dispositivo) — ver §10 y §11. Sigue pendiente: generalizar el solver de benchmarks (ítem 5 del roadmap), PyVRP y el dataset del Gran Mendoza (ítems 8-9), y lo que queda fuera de alcance de empresa (§10).
 
 **Especificaciones y cambios**: el trabajo nuevo se planifica con **OpenSpec** (`openspec/`) — ver §12.
 
@@ -65,13 +65,15 @@ api/
   validaciones.py               # reglas compartidas por varios schemas (ej. ventana horaria completa y ordenada)
   schemas_auth.py / routes_auth.py     # registro/login/me/invitaciones/perfil/vehículo/contraseña (ver §10)
   routes_google.py               # login con Google: iniciar/callback/registro pendiente (ver §10)
+  schemas_empresa.py / routes_empresa.py   # admin: choferes, rutas y traza de la flota, historial (ver §10)
   schemas_clientes.py / routes_clientes.py     # CRUD de Cliente ("lugares" guardados) — ver §11 (`GET /rutas?fecha=`, `/rutas/{id}`)
   schemas_depositos.py / routes_depositos.py   # CRUD de Deposito — ver §11
   schemas_rutas.py / routes_rutas.py           # optimizar/confirmar/activa/paradas/historial — ver §11
   schemas_incidencias.py / routes_incidencias.py   # reporte, listado, filtro por estado y resolución — ver §11
   schemas_entregas_pendientes.py / routes_entregas_pendientes.py   # entregas reprogramadas — ver §11
   schemas_geocoding.py / routes_geocoding.py   # proxy de geocoding (Nominatim): inverso y búsqueda — ver §11
-  dependencies.py                # get_db, obtener_usuario_actual, requiere_admin, requiere_chofer_independiente
+  dependencies.py                # get_db, obtener_usuario_actual, requiere_admin, requiere_chofer,
+                                 # requiere_planificador (chofer indep. o admin), requiere_chofer_independiente
 routing/
   solver.py                    # resolver_ruteo(): el modelo OR-Tools (lee settings.solver_time_limit_segundos);
                                 # valida entradas y levanta ValueError si son inconsistentes entre sí
@@ -99,9 +101,10 @@ tests/
   conftest.py                   # DB Postgres de test separada (sufijo _test), TestClient con get_db overrideado,
                                  # payload_chofer(), y helpers/fixtures compartidos para armar choferes, lugares y
                                  # rutas (osrm_falso, armar_chofer_con_lugares, iniciar_ruta_con_paradas, ...)
+                                 # y empresas (registrar_admin, registrar_chofer_de_empresa, iniciar_sesion)
   test_auth.py / test_perfil.py / test_clientes.py / test_depositos.py / test_rutas.py / test_resumen.py /
   test_incidencias.py / test_entregas_pendientes.py / test_geocoding.py / test_optimizar_vrp.py /
-  test_google_auth.py (canje con Google mockeado) /
+  test_google_auth.py (canje con Google mockeado) / test_empresa.py / test_flota.py /
   test_solver.py / test_osrm_client.py
                                  # los que arman rutas mockean OSRM con una matriz sintética con floats — no
                                  # dependen del servidor OSRM real
@@ -204,7 +207,8 @@ Basado en las secciones 4.3 y 5 del paper (dataset, validación, métricas empí
 - `OSRM_BASE_URL` apunta por defecto al **servidor demo público** de OSRM, que tiene rate-limiting y no está pensado para uso intensivo/producción. La alternativa (OSRM propio) existe pero cubre solo el recuadro del Gran Mendoza y hay que prepararla a mano (§7).
 - No hay dataset del Gran Mendoza todavía — el título de la API ("Gran Mendoza") es aspiracional hasta el ítem 9 del roadmap.
 - No hay `response_model` tipado en el endpoint `/api/v1/optimizar` (devuelve un `dict` plano). No es prioritario resolverlo fuera del roadmap salvo que se decida explícitamente.
-- `frontend/src/paginas/PestanaInicio.tsx` (pestaña "Inicio" de la vista clásica, usada por admin y choferes de empresa) es anterior al panel de escritorio del chofer independiente: solo sabe completar paradas, no registra llegada, ni falla/saltea, ni tiene resumen de cierre.
+- El seguimiento de la flota se refresca por polling (30 s, solo con la pestaña visible) y no muestra la posición en vivo de los choferes: la ubicación del dispositivo nunca se envía al backend.
+- El mensaje de capacidad excedida al armar es el del planificador ("tu vehículo") también cuando arma el admin para otro chofer.
 - El modo offline es de **solo lectura**: las acciones que escriben se bloquean sin conexión (no se encolan, no todas son idempotentes). Solo la ruta activa y el perfil se guardan localmente; "Mis lugares", historial e incidencias no.
 - `en_riesgo` (ventana por vencer) se calcula sobre el plan y la hora del reloj, no se recalcula con la llegada real, y el resumen informa la distancia *planificada*: no se registra el recorrido real del vehículo.
 - Las cuentas creadas con Google no tienen contraseña (`contrasena_hash` NULL): no pueden definir una ni desvincular Google, y si pierden el acceso a esa cuenta de Google no tienen otra forma de entrar. El registro con Google solo crea choferes independientes (no empresas ni choferes invitados).
@@ -213,7 +217,11 @@ Basado en las secciones 4.3 y 5 del paper (dataset, validación, métricas empí
 
 ## 10. Sistema de cuentas / autenticación (implementado)
 
-Capa para soportar la app PWA (más allá del motor VRP puro). Backend: `db/modelos.py`, `api/routes_auth.py`, `core/seguridad.py`. Frontend: `frontend/src/store/useAuthStore.ts`, `frontend/src/paginas/{Login,Registro}.tsx`.
+Capa para soportar la app PWA (más allá del motor VRP puro). Backend: `db/modelos.py`, `api/routes_auth.py`, `core/seguridad.py`. Frontend: `frontend/src/store/useAuthStore.ts`, `frontend/src/paginas/{Login,Registro,Inicio}.tsx`.
+
+**Escritorio por rol** (`paginas/Inicio.tsx` despacha): todos usan `componentes/escritorio/ShellEscritorio.tsx` (sidebar/drawer/header; las secciones se declaran como datos en `NavSidebar.tsx`). `EscritorioChofer` sirve al chofer independiente y al de empresa (deriva `esIndependiente` de `empresa_id` y de ahí secciones y permisos: `puedePlanificar`, `editable`, `puedeReprogramar`, y el `alcance` de `PanelIncidencias`: `propias` / `deEmpresa` / `flota`). `EscritorioEmpresa` es el del admin: Hoy (`empresa/PanelFlotaHoy`), Armar ruta (`empresa/PanelArmarRutaEmpresa` = selector de chofer + `FlujoArmarRuta` con `choferId`), Choferes (`empresa/PanelChoferes`, con invitaciones), Lugares (`PestanaLugares deEmpresa`), Historial (`empresa/PanelHistorialFlota`), Incidencias y Mi cuenta.
+
+**Empresa (admin y chofer de empresa)**: el admin planifica con los mismos endpoints de `/rutas` mandando `chofer_id` (`routes_rutas._chofer_destino`: 422 sin chofer, 404 si no es de su empresa, 409 si está inactivo o sin vehículo); la ruta queda con `chofer_id` del chofer y `creado_por_usuario_id` del admin, y `planificar_ruta` usa el vehículo de ese chofer y los lugares de la empresa. Edita y cancela rutas de su flota (`crud.obtener_ruta_gestionable`, mismo criterio de alcance que las incidencias). El chofer de empresa ejecuta lo asignado con los mismos endpoints que el independiente (`requiere_chofer`), no planifica (403) y no reprograma al fallar (403: lo decide el admin al resolver la incidencia). Lugares, depósitos y entregas reprogramadas son de la empresa (`EntregaPendiente` usa `DuenioMixin` con `CHECK` de un solo dueño). `/api/v1/empresa` (solo admin): `GET /choferes` (con resumen del día), `GET /rutas?fecha=`, `GET /rutas/{id}`, `GET /rutas/{id}/geometria`, `GET /historial?desde&hasta&chofer_id=`. Las incidencias se listan por alcance (`crud.listar_incidencias`: el chofer, las que reportó; el admin, las de su flota, con `chofer_nombre`).
 
 **Modelo de cuentas**:
 - `Empresa` (1) —N— `Usuario` vía `Usuario.empresa_id` (nullable). Un `Usuario` es o bien **chofer independiente** (`rol=chofer`, `empresa_id=NULL`) o **chofer de una empresa** (`rol=chofer`, `empresa_id` seteado) o **admin de una empresa** (`rol=admin`, siempre con `empresa_id`).
@@ -231,9 +239,9 @@ Capa para soportar la app PWA (más allá del motor VRP puro). Backend: `db/mode
 Cualquier 401 de `fetchApi` (sesión vencida o cookie perdida) limpia `useAuthStore` y la copia local offline automáticamente — `registrarManejadorSesionExpirada` en `api/cliente.ts` evita el import circular hacia el store; `RutaProtegida` (`router.tsx`) ya redirige sola a `/login` cuando `estaAutenticado` pasa a `false`, así una sesión perdida se hace visible en vez de fallar en silencio pedido por pedido.
 
 **Fuera de alcance todavía** (no construir por sorpresa sin que se pida explícitamente):
-- Dashboard de empresa (ver/listar choferes, copiar códigos de invitación desde la UI — hoy solo existe el endpoint, se prueba por API).
-- Asignación de rutas por parte de la empresa a un chofer específico (el chofer independiente ya arma y ejecuta la suya solo — ver §11 — pero un chofer de empresa todavía no recibe nada, ni de un admin ni de sí mismo).
-- Prueba de Entrega (POD — el modelo `PruebaEntrega` ya existe pero sin UI ni endpoint), Mi Flota.
+- Mi Flota: alta de vehículos por el admin y asignación de vehículos a choferes (hoy cada chofer carga el suyo al registrarse).
+- Desactivar o desvincular choferes, roles intermedios, posición en vivo, notificaciones.
+- Prueba de Entrega (POD — el modelo `PruebaEntrega` ya existe pero sin UI ni endpoint).
 - Billing/suscripciones reales, verificación de email.
 
 ## 11. Libreta de direcciones, armado y ejecución de rutas (chofer independiente, implementado)
@@ -265,9 +273,9 @@ Un chofer sin empresa arma, confirma, ejecuta y cierra su propia ruta del día, 
 
 **Mapa de ruta activa** (`MapaRutaActiva.tsx`): traza violeta fina para el resto de la ruta y verde para el tramo en curso, un pin por parada coloreado por `estado` (gris pendiente, verde en curso —más grande y pulsante—, verde completada, rojo fallida), y —solo si el chofer lo activó— un punto azul con su posición. "Abrir navegación"/"Ir con Maps" abre `google.com/maps/dir` con coordenadas reales (sin API key ni billing); usa como origen la posición del dispositivo si está activa, y si no el depósito o la parada anterior.
 
-**PWA, modo offline y ubicación** (`frontend/public/{sw.js,manifest.webmanifest}`, `utilidades/{registrarServiceWorker,almacenRuta}.ts`, `hooks/{useRutasDelDia,useRutaActiva,useEnLinea,useUbicacion}.ts`): la app es instalable; el service worker guarda el shell en runtime y las teselas de OSM, y nunca cachea la API. Sin conexión (dispositivo offline o servidor inalcanzable) `useRutaActiva` muestra la última ruta guardada en IndexedDB (con la hora de guardado y un aviso) y **bloquea** las acciones que escriben; al volver la señal reintenta solo. La copia local (ruta activa + perfil, sin credenciales) se borra al cerrar sesión y ante un 401. Una versión nueva del service worker queda en espera hasta que el chofer acepta el aviso "Hay una versión nueva". La posición del dispositivo se pide solo cuando el chofer toca "Usar mi ubicación", vive en el estado de React y **nunca** se envía al backend.
+**PWA, modo offline y ubicación** (`frontend/public/{sw.js,manifest.webmanifest}`, `utilidades/{registrarServiceWorker,almacenRuta}.ts`, `hooks/{useRutasDelDia,useEnLinea,useUbicacion}.ts`): la app es instalable; el service worker guarda el shell en runtime y las teselas de OSM, y nunca cachea la API. Sin conexión (dispositivo offline o servidor inalcanzable) `useRutasDelDia` muestra las últimas rutas guardadas en IndexedDB (con la hora de guardado y un aviso) y **bloquea** las acciones que escriben; al volver la señal reintenta solo. La copia local (ruta activa + perfil, sin credenciales) se borra al cerrar sesión y ante un 401. Una versión nueva del service worker queda en espera hasta que el chofer acepta el aviso "Hay una versión nueva". La posición del dispositivo se pide solo cuando el chofer toca "Usar mi ubicación", vive en el estado de React y **nunca** se envía al backend.
 
-**Solo chofer independiente**: `api/dependencies.requiere_chofer_independiente` (403 si `usuario.empresa_id` no es `None`) protege el armado, la ejecución y el historial de rutas, las incidencias y la edición del vehículo — un chofer de empresa no puede auto-asignarse una ruta todavía (ver §10, fuera de alcance).
+**Permisos por rol**: `requiere_planificador` (chofer independiente o admin) protege armar, editar y cancelar rutas, escribir la libreta, listar entregas pendientes y resolver incidencias; `requiere_chofer` (cualquier chofer) la ejecución, iniciar y el historial propio; `requiere_chofer_independiente` queda solo para editar el vehículo. Ver §10 (empresa).
 
 ## 12. Flujo de trabajo con OpenSpec
 

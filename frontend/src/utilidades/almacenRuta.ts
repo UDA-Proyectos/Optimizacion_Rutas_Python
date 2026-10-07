@@ -11,14 +11,10 @@ import type { RutaPublica } from "../tipos/ruta";
 const NOMBRE_DB = "optiruta";
 const VERSION_DB = 2;
 const ALMACEN = "offline";
-const CLAVE_RUTA = "ruta";
+// La usaba la vista clásica (una sola ruta); queda solo para borrarla de dispositivos viejos.
+const CLAVE_RUTA_LEGADA = "ruta";
 const CLAVE_RUTAS = "rutas";
 const CLAVE_USUARIO = "usuario";
-
-export interface RutaGuardada {
-  ruta: RutaPublica;
-  guardadaEn: number;
-}
 
 function abrirDb(): Promise<IDBDatabase> {
   return new Promise((resolver, rechazar) => {
@@ -61,19 +57,6 @@ async function operar<T>(
   }
 }
 
-export async function guardarRutaCache(ruta: RutaPublica): Promise<void> {
-  const valor: RutaGuardada = { ruta, guardadaEn: Date.now() };
-  await operar("readwrite", (almacen) => almacen.put(valor, CLAVE_RUTA));
-}
-
-export async function leerRutaCache(): Promise<RutaGuardada | null> {
-  return (await operar<RutaGuardada>("readonly", (almacen) => almacen.get(CLAVE_RUTA))) ?? null;
-}
-
-export async function borrarRutaCache(): Promise<void> {
-  await operar("readwrite", (almacen) => almacen.delete(CLAVE_RUTA));
-}
-
 export async function guardarUsuarioCache(usuario: UsuarioPublico): Promise<void> {
   await operar("readwrite", (almacen) => almacen.put(usuario, CLAVE_USUARIO));
 }
@@ -105,7 +88,7 @@ export async function leerRutasCache(): Promise<RutasGuardadas | null> {
 /** Todo lo guardado para uso offline — al cerrar sesión o ante un 401. */
 export async function borrarCacheOffline(): Promise<void> {
   await operar("readwrite", (almacen) => {
-    almacen.delete(CLAVE_RUTA);
+    almacen.delete(CLAVE_RUTA_LEGADA);
     almacen.delete(CLAVE_RUTAS);
     almacen.delete(CLAVE_USUARIO);
   });

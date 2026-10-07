@@ -15,10 +15,26 @@ const ETIQUETA_FILTRO: Record<Filtro, string> = {
   todas: "Todas",
 };
 
-const TEXTO_VACIO: Record<Filtro, string> = {
-  pendiente: "No tenés incidencias pendientes.",
-  resuelta: "Todavía no resolviste ninguna incidencia.",
-  todas: "No reportaste ninguna incidencia todavía.",
+/** Quién mira: el chofer independiente (resuelve las suyas), el chofer de empresa (las
+ * resuelve su empresa) o el admin (ve y resuelve las de toda la flota). */
+export type AlcanceIncidencias = "propias" | "deEmpresa" | "flota";
+
+const TEXTO_VACIO: Record<AlcanceIncidencias, Record<Filtro, string>> = {
+  propias: {
+    pendiente: "No tenés incidencias pendientes.",
+    resuelta: "Todavía no resolviste ninguna incidencia.",
+    todas: "No reportaste ninguna incidencia todavía.",
+  },
+  deEmpresa: {
+    pendiente: "No tenés incidencias pendientes.",
+    resuelta: "Tu empresa todavía no resolvió ninguna de tus incidencias.",
+    todas: "No reportaste ninguna incidencia todavía.",
+  },
+  flota: {
+    pendiente: "No hay incidencias pendientes en la flota.",
+    resuelta: "Todavía no se resolvió ninguna incidencia.",
+    todas: "Ningún chofer reportó incidencias todavía.",
+  },
 };
 
 const ETIQUETA_RESOLUCION: Record<ResolucionIncidencia, string> = {
@@ -41,9 +57,15 @@ interface Props {
   sinConexion: boolean;
   /** Se llama tras resolver una incidencia, para volver a pedir el listado. */
   onActualizar: () => void;
+  alcance: AlcanceIncidencias;
 }
 
-export function PanelIncidencias({ incidencias, sinConexion, onActualizar }: Props) {
+export function PanelIncidencias({
+  incidencias,
+  sinConexion,
+  onActualizar,
+  alcance,
+}: Props) {
   const [filtro, setFiltro] = useState<Filtro>("pendiente");
   const [resolviendoId, setResolviendoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +115,7 @@ export function PanelIncidencias({ incidencias, sinConexion, onActualizar }: Pro
       {error && <BannerError>{error}</BannerError>}
 
       {visibles.length === 0 ? (
-        <TextoVacio>{TEXTO_VACIO[filtro]}</TextoVacio>
+        <TextoVacio>{TEXTO_VACIO[alcance][filtro]}</TextoVacio>
       ) : (
         <ul className="flex flex-col gap-2.5">
           {visibles.map((incidencia) => (
@@ -110,6 +132,7 @@ export function PanelIncidencias({ incidencias, sinConexion, onActualizar }: Pro
                 </span>
               </div>
               <p className="mt-0.5 text-[12px] text-texto-mutado">
+                {alcance === "flota" && `${incidencia.chofer_nombre} · `}
                 {incidencia.parada_nombre ? `Parada: ${incidencia.parada_nombre}` : "Ruta completa"}
                 {` · ruta del ${incidencia.ruta_fecha}`}
               </p>
@@ -123,6 +146,10 @@ export function PanelIncidencias({ incidencias, sinConexion, onActualizar }: Pro
                   {incidencia.resolucion && ` · ${ETIQUETA_RESOLUCION[incidencia.resolucion]}`}
                   {incidencia.fecha_resolucion &&
                     ` · ${formatearFechaHora(incidencia.fecha_resolucion)}`}
+                </p>
+              ) : alcance === "deEmpresa" ? (
+                <p className="mt-2 inline-flex items-center gap-1.5 rounded-pill bg-fondo px-2.5 py-1 text-[11px] font-semibold text-texto-cuerpo">
+                  Pendiente · la resuelve tu empresa
                 </p>
               ) : (
                 <div className="mt-2.5 flex flex-wrap gap-2">

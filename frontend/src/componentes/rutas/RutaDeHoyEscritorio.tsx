@@ -1,31 +1,20 @@
 import { eliminarRuta, iniciarRuta } from "../../api/rutas";
-import type { EjecutarAccionRuta } from "../../hooks/useRutaActiva";
+import type { EjecutarAccionRuta } from "../../hooks/useRutasDelDia";
 import type { EstadoGps } from "../../hooks/useUbicacion";
 import type { UsuarioPublico } from "../../tipos/auth";
 import type { ClientePublico } from "../../tipos/cliente";
-import type { EstadoRuta, RutaPublica } from "../../tipos/ruta";
-import { etiquetaDia, fechaLarga, hoyLocal } from "../../utilidades/fechas";
+import type { RutaPublica } from "../../tipos/ruta";
+import { CHIP_ESTADO_RUTA, ETIQUETA_ESTADO_RUTA } from "../../utilidades/estadosRuta";
+import { etiquetaDia, hoyLocal } from "../../utilidades/fechas";
 import { Boton } from "../ui/Boton";
 import { combinarClases } from "../ui/combinarClases";
 import { BannerError } from "../ui/Formulario";
 import { CabeceraTarjeta, TituloTarjeta } from "../ui/TarjetaContenido";
 import { TextoVacio } from "../ui/TextoVacio";
+import { NavegadorDia } from "./NavegadorDia";
 import { ResumenCierre } from "./ResumenCierre";
 import { VistaEnCursoRuta } from "./VistaEnCursoRuta";
 
-const ETIQUETA_ESTADO: Record<EstadoRuta, string> = {
-  planificada: "Planificada",
-  en_curso: "En curso",
-  completada: "Completada",
-  cancelada: "Cancelada",
-};
-
-const CHIP_ESTADO: Record<EstadoRuta, string> = {
-  planificada: "bg-primario/10 text-[#6428CC]",
-  en_curso: "bg-exito-tint text-[#067647]",
-  completada: "bg-fondo text-texto-cuerpo",
-  cancelada: "bg-peligro-tint text-peligro",
-};
 
 interface Props {
   fecha: string;
@@ -48,6 +37,8 @@ interface Props {
   onIrAArmarRuta: () => void;
   onIrAHistorial: () => void;
   onEditar: (ruta: RutaPublica) => void;
+  /** El chofer de empresa recibe sus rutas asignadas: no arma, edita ni cancela. */
+  puedePlanificar: boolean;
 }
 
 function TarjetaCentrada({ children }: { children: React.ReactNode }) {
@@ -84,6 +75,7 @@ export function RutaDeHoyEscritorio({
   onIrAArmarRuta,
   onIrAHistorial,
   onEditar,
+  puedePlanificar,
 }: Props) {
   // Una ruta en curso de otro día no se pierde de vista: se ofrece volver a ella.
   const enCursoEnOtroDia = enCurso && enCurso.fecha !== fecha ? enCurso : null;
@@ -92,45 +84,16 @@ export function RutaDeHoyEscritorio({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-col gap-2 border-b border-borde bg-blanco/80 px-4 py-2.5 backdrop-blur-[10px] lg:px-6">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1" role="group" aria-label="Día">
+          <NavegadorDia fecha={fecha} onMoverDia={onMoverDia} onIrAHoy={onIrAHoy} />
+          {puedePlanificar && (
             <button
               type="button"
-              onClick={() => onMoverDia(-1)}
-              aria-label="Día anterior"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-borde text-texto-fuerte hover:bg-fondo"
+              onClick={onIrAArmarRuta}
+              className="h-8 rounded-md bg-primario px-3 text-[12px] font-bold text-blanco"
             >
-              ‹
+              + Armar ruta
             </button>
-            <button
-              type="button"
-              onClick={onIrAHoy}
-              disabled={fecha === hoyLocal()}
-              className="h-8 rounded-md border border-borde px-2.5 text-[12px] font-semibold text-texto-fuerte hover:bg-fondo disabled:opacity-50"
-            >
-              Hoy
-            </button>
-            <button
-              type="button"
-              onClick={() => onMoverDia(1)}
-              aria-label="Día siguiente"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-borde text-texto-fuerte hover:bg-fondo"
-            >
-              ›
-            </button>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-bold text-texto-fuerte">{etiquetaDia(fecha)}</p>
-            <p className="truncate text-[11px] text-texto-mutado first-letter:uppercase">
-              {fechaLarga(fecha)}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onIrAArmarRuta}
-            className="h-8 rounded-md bg-primario px-3 text-[12px] font-bold text-blanco"
-          >
-            + Armar ruta
-          </button>
+          )}
         </div>
 
         {rutas.length > 1 && (
@@ -158,10 +121,10 @@ export function RutaDeHoyEscritorio({
                 <span
                   className={combinarClases(
                     "rounded-pill px-2 py-0.5 text-[10px] font-semibold",
-                    CHIP_ESTADO[r.estado],
+                    CHIP_ESTADO_RUTA[r.estado],
                   )}
                 >
-                  {ETIQUETA_ESTADO[r.estado]}
+                  {ETIQUETA_ESTADO_RUTA[r.estado]}
                 </span>
               </button>
             ))}
@@ -194,16 +157,26 @@ export function RutaDeHoyEscritorio({
           <TarjetaCentrada>
             <div className="flex flex-col items-center text-center">
               <p className="mb-1.5 text-[15px] font-bold text-texto-fuerte">
-                {fecha === hoyLocal()
-                  ? "Todavía no armaste ninguna ruta para hoy"
-                  : `No tenés rutas para ${etiquetaDia(fecha).toLowerCase()}`}
+                {fecha !== hoyLocal()
+                  ? `No tenés rutas para ${etiquetaDia(fecha).toLowerCase()}`
+                  : puedePlanificar
+                    ? "Todavía no armaste ninguna ruta para hoy"
+                    : "Todavía no te asignaron rutas para hoy"}
               </p>
-              <p className="mb-5 max-w-[280px] text-[13px] text-texto-mutado">
-                Elegí los lugares que visitás y te armamos el mejor orden para recorrerlos.
-              </p>
-              <Boton tamanio="auto" onClick={onIrAArmarRuta}>
-                Armar ruta
-              </Boton>
+              {puedePlanificar ? (
+                <>
+                  <p className="mb-5 max-w-[280px] text-[13px] text-texto-mutado">
+                    Elegí los lugares que visitás y te armamos el mejor orden para recorrerlos.
+                  </p>
+                  <Boton tamanio="auto" onClick={onIrAArmarRuta}>
+                    Armar ruta
+                  </Boton>
+                </>
+              ) : (
+                <p className="max-w-[280px] text-[13px] text-texto-mutado">
+                  Cuando tu empresa te asigne una ruta, la vas a ver acá.
+                </p>
+              )}
             </div>
             {error && (
               <div className="mt-4">
@@ -223,7 +196,7 @@ export function RutaDeHoyEscritorio({
               <Boton variante="secundario" onClick={onIrAHistorial}>
                 Ver historial
               </Boton>
-              <Boton onClick={onIrAArmarRuta}>Armar otra ruta</Boton>
+              {puedePlanificar && <Boton onClick={onIrAArmarRuta}>Armar otra ruta</Boton>}
             </div>
           </TarjetaCentrada>
         ) : ruta.estado !== "en_curso" ? (
@@ -236,6 +209,7 @@ export function RutaDeHoyEscritorio({
             error={error}
             ejecutar={ejecutar}
             onEditar={() => onEditar(ruta)}
+            puedePlanificar={puedePlanificar}
           />
         ) : (
           <VistaEnCursoRuta
@@ -247,6 +221,7 @@ export function RutaDeHoyEscritorio({
             ejecutar={ejecutar}
             usuario={usuario}
             clientePorId={clientePorId}
+            puedeReprogramar={puedePlanificar}
           />
         )}
       </div>
@@ -263,6 +238,7 @@ function ResumenRuta({
   error,
   ejecutar,
   onEditar,
+  puedePlanificar,
 }: {
   ruta: RutaPublica;
   fecha: string;
@@ -272,6 +248,7 @@ function ResumenRuta({
   error: string | null;
   ejecutar: Props["ejecutar"];
   onEditar: () => void;
+  puedePlanificar: boolean;
 }) {
   const cargaTotalKg = ruta.paradas.reduce((suma, p) => suma + p.demanda_carga_snapshot, 0);
   const cargaPct = Math.min(100, Math.round((cargaTotalKg / ruta.capacidad_vehiculo_kg) * 100));
@@ -317,12 +294,14 @@ function ResumenRuta({
           </Boton>
           {esDeUnDiaFuturo && (
             <p className="text-center text-[11.5px] text-texto-mutado">
-              Se puede iniciar el día de la ruta. Mientras tanto la podés editar o cancelar.
+              Se puede iniciar el día de la ruta.
+              {puedePlanificar && " Mientras tanto la podés editar o cancelar."}
             </p>
           )}
           {hayOtraEnCurso && !esDeUnDiaFuturo && (
             <p className="text-center text-[11.5px] text-texto-mutado">
-              Ya tenés otra ruta en curso: terminala o cancelala para iniciar esta.
+              Ya tenés otra ruta en curso: {puedePlanificar ? "terminala o cancelala" : "terminala"} para
+              iniciar esta.
             </p>
           )}
           {sinConexion && (
@@ -330,24 +309,26 @@ function ResumenRuta({
               Sin conexión: la ruta se puede iniciar o cambiar cuando vuelva la señal.
             </p>
           )}
-          <div className="flex gap-2.5 [&>*]:flex-1">
-            <Boton variante="secundario" disabled={sinConexion} onClick={onEditar}>
-              Editar
-            </Boton>
-            <Boton
-              variante="peligro"
-              cargando={enviando}
-              disabled={sinConexion}
-              onClick={() =>
-                ejecutar(
-                  () => eliminarRuta(ruta.id).then(() => undefined),
-                  "No se pudo eliminar la ruta.",
-                )
-              }
-            >
-              Eliminar
-            </Boton>
-          </div>
+          {puedePlanificar && (
+            <div className="flex gap-2.5 [&>*]:flex-1">
+              <Boton variante="secundario" disabled={sinConexion} onClick={onEditar}>
+                Editar
+              </Boton>
+              <Boton
+                variante="peligro"
+                cargando={enviando}
+                disabled={sinConexion}
+                onClick={() =>
+                  ejecutar(
+                    () => eliminarRuta(ruta.id).then(() => undefined),
+                    "No se pudo eliminar la ruta.",
+                  )
+                }
+              >
+                Eliminar
+              </Boton>
+            </div>
+          )}
         </div>
       )}
     </TarjetaCentrada>

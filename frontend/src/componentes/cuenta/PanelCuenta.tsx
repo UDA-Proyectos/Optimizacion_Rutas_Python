@@ -22,9 +22,8 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   );
 }
 
-/** Reemplaza el drawer PanelPerfil para el chofer independiente: la cuenta
- * es una sección más del menú lateral, no un panel flotante aparte —
- * mismo criterio de navegación que el resto de las secciones. */
+/** La cuenta es una sección más del menú lateral de cada escritorio, no un
+ * panel flotante aparte — mismo criterio de navegación que el resto. */
 export function PanelCuenta({ usuario, onCerrarSesion }: Props) {
   const [modo, setModo] = useState<"ver" | "perfil" | "contrasena">("ver");
   const [aviso, setAviso] = useState<string | null>(null);
@@ -69,7 +68,9 @@ export function PanelCuenta({ usuario, onCerrarSesion }: Props) {
         </div>
         <p className="text-[15px] font-bold text-texto-fuerte">{usuario.nombre_completo}</p>
         <p className="text-[12.5px] text-texto-mutado">
-          Chofer{usuario.empresa_id ? " · con empresa vinculada" : " · independiente"}
+          {usuario.rol === "admin"
+            ? "Administrador de empresa"
+            : `Chofer${usuario.empresa_id ? " · con empresa vinculada" : " · independiente"}`}
         </p>
       </div>
 

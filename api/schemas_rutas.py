@@ -40,6 +40,8 @@ class OptimizarRutaRequest(BaseModel):
     fecha: date | None = None
     # Para distinguir varias rutas del mismo día.
     nombre: str | None = Field(None, max_length=60)
+    # Solo el admin: a qué chofer de su empresa se le asigna la ruta.
+    chofer_id: uuid.UUID | None = None
 
     @field_validator("nombre")
     @classmethod
@@ -219,6 +221,8 @@ class RutaPublica(BaseModel):
     nombre: str | None
     estado: EstadoRuta
     tipo_problema: TipoProblema
+    chofer_id: uuid.UUID
+    chofer_nombre: str
     distancia_total_m: int | None
     hora_inicio_real: datetime | None
     hora_fin_real: datetime | None
@@ -264,6 +268,7 @@ class RutaHistorialItem(BaseModel):
     nombre: str | None
     estado: EstadoRuta
     tipo_problema: TipoProblema
+    chofer_nombre: str
     distancia_total_m: int | None
     paradas_total: int
     paradas_completadas: int

@@ -31,6 +31,8 @@ export interface OptimizarRutaRequest {
   fecha?: string | null;
   /** Para distinguir varias rutas del mismo día. */
   nombre?: string | null;
+  /** Solo el admin: a qué chofer de su empresa se le asigna la ruta. */
+  chofer_id?: string;
 }
 
 export interface ParadaPreview {
@@ -110,6 +112,8 @@ export interface RutaPublica {
   nombre: string | null;
   estado: EstadoRuta;
   tipo_problema: TipoProblema;
+  chofer_id: string;
+  chofer_nombre: string;
   distancia_total_m: number | null;
   hora_inicio_real: string | null;
   hora_fin_real: string | null;
@@ -131,6 +135,7 @@ export interface RutaHistorialItem {
   nombre: string | null;
   estado: EstadoRuta;
   tipo_problema: TipoProblema;
+  chofer_nombre: string;
   distancia_total_m: number | null;
   paradas_total: number;
   paradas_completadas: number;

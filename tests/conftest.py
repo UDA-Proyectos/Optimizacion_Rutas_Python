@@ -207,3 +207,53 @@ def _geometria_sintetica(coordenadas):
 @pytest.fixture
 def osrm_geometria_falsa(monkeypatch):
     monkeypatch.setattr("api.routes_rutas.obtener_geometria_osrm", _geometria_sintetica)
+
+
+# --- Empresas: admin y choferes de empresa ----------------------------------
+# Un solo TestClient comparte la cookie de sesión: cada helper deja logueado al
+# último usuario que registró o con el que inició sesión.
+
+CONTRASENA_EMPRESA = "flotaSegura123"
+
+
+def iniciar_sesion(client, email, contrasena=CONTRASENA_EMPRESA):
+    client.cookies.clear()
+    respuesta = client.post("/api/v1/auth/login", json={"email": email, "contrasena": contrasena})
+    assert respuesta.status_code == 200, respuesta.text
+    return respuesta.json()
+
+
+def registrar_admin(client, email="admin@flota.com", nombre_empresa="Flota Sur"):
+    client.cookies.clear()
+    respuesta = client.post(
+        "/api/v1/auth/registro/empresa",
+        json={
+            "nombre_empresa": nombre_empresa,
+            "email": email,
+            "contrasena": CONTRASENA_EMPRESA,
+            "confirmar_contrasena": CONTRASENA_EMPRESA,
+            "nombre_completo": "Ana Admin",
+        },
+    )
+    assert respuesta.status_code == 201, respuesta.text
+    return respuesta.json()["usuario"]
+
+
+def registrar_chofer_de_empresa(client, email_admin, email, patente, nombre="Chofer Flota"):
+    """El admin (`email_admin`) genera un código y el chofer se registra con él.
+    Deja logueado al chofer."""
+    iniciar_sesion(client, email_admin)
+    codigo = client.post("/api/v1/auth/invitaciones").json()["codigo"]
+    client.cookies.clear()
+    respuesta = client.post(
+        "/api/v1/auth/registro/chofer-invitado",
+        json=payload_chofer(
+            email,
+            contrasena=CONTRASENA_EMPRESA,
+            nombre_completo=nombre,
+            patente=patente,
+            codigo_invitacion=codigo,
+        ),
+    )
+    assert respuesta.status_code == 201, respuesta.text
+    return respuesta.json()

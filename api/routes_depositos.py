@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from api import schemas_depositos as schemas
-from api.dependencies import get_db, obtener_usuario_actual
+from api.dependencies import get_db, obtener_usuario_actual, requiere_planificador
 from api.schemas_auth import MensajeResponse
 from db import crud
 from db.modelos import Deposito, Usuario
@@ -23,7 +23,7 @@ def _obtener_deposito_propio(db: Session, deposito_id: uuid.UUID, usuario: Usuar
 def crear_deposito(
     datos: schemas.DepositoCrear,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario: Usuario = Depends(requiere_planificador),
 ):
     return crud.crear_deposito(db, datos, usuario.ambito_dueño)
 
@@ -40,7 +40,7 @@ def actualizar_deposito(
     deposito_id: uuid.UUID,
     datos: schemas.DepositoActualizar,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario: Usuario = Depends(requiere_planificador),
 ):
     deposito = _obtener_deposito_propio(db, deposito_id, usuario)
     return crud.actualizar_deposito(db, deposito, datos.model_dump(exclude_unset=True))
@@ -50,7 +50,7 @@ def actualizar_deposito(
 def eliminar_deposito(
     deposito_id: uuid.UUID,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario: Usuario = Depends(requiere_planificador),
 ):
     deposito = _obtener_deposito_propio(db, deposito_id, usuario)
     crud.eliminar_deposito(db, deposito)

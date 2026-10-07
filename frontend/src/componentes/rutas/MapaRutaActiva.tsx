@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { MapContainer, Marker, Polyline, TileLayer, ZoomControl, useMap } from "react-leaflet";
 
 import { obtenerGeometriaRutaActiva } from "../../api/rutas";
-import type { DepositoResumen, ParadaRutaPublica } from "../../tipos/ruta";
+import type { DepositoResumen, GeometriaRuta, ParadaRutaPublica } from "../../tipos/ruta";
 import {
   type Coordenada,
   construirUrlGoogleMaps,
@@ -85,6 +85,9 @@ interface Props {
   overlaySimple?: boolean;
   /** Posición actual del chofer, solo si activó su ubicación. */
   ubicacion?: Coordenada | null;
+  /** De dónde sale la traza; por defecto, la ruta en curso del chofer. El admin pasa la
+   * de una ruta de su flota. */
+  cargarGeometria?: () => Promise<GeometriaRuta>;
   children?: ReactNode;
 }
 
@@ -93,6 +96,7 @@ export function MapaRutaActiva({
   paradas,
   overlaySimple = true,
   ubicacion = null,
+  cargarGeometria = obtenerGeometriaRutaActiva,
   children,
 }: Props) {
   const [tramos, setTramos] = useState<[number, number][][]>([]);
@@ -101,9 +105,12 @@ export function MapaRutaActiva({
   // cuando cambia la secuencia de paradas, no solo al montar.
   const secuenciaParadas = paradas.map((parada) => parada.id).join(",");
   useEffect(() => {
-    obtenerGeometriaRutaActiva()
+    cargarGeometria()
       .then((geometria) => setTramos(geometria.tramos))
       .catch(() => setTramos([]));
+    // cargarGeometria suele ser una función nueva en cada render: la traza depende de la
+    // secuencia de paradas, no de su identidad.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secuenciaParadas]);
 
   const indiceProxima = paradas.findIndex((parada) => parada.estado === "en_curso");
@@ -139,6 +146,7 @@ export function MapaRutaActiva({
   });
 
   const origenNavegacion = origenNavegacionParaParadaActual(deposito, paradas, ubicacion);
+  const overlayPropio = children != null;
 
   return (
     <div className="relative h-full overflow-hidden rounded-lg border border-borde bg-superficie-hundida shadow-sm">
@@ -147,17 +155,17 @@ export function MapaRutaActiva({
       <div
         className={combinarClases(
           "h-full",
-          !overlaySimple &&
+          overlayPropio &&
             "[&_.leaflet-bottom.leaflet-right]:mb-[68px] max-lg:[&_.leaflet-control-zoom]:hidden",
         )}
       >
         <MapContainer
           center={CENTRO_MENDOZA}
           zoom={13}
-          zoomControl={overlaySimple}
+          zoomControl={!overlayPropio}
           style={{ height: "100%" }}
         >
-          {!overlaySimple && <ZoomControl position="bottomright" />}
+          {overlayPropio && <ZoomControl position="bottomright" />}
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

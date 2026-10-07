@@ -22,9 +22,19 @@ import type { Seleccion } from "../rutas/FlujoArmarRuta";
 import { RutaDeHoyEscritorio } from "../rutas/RutaDeHoyEscritorio";
 import { BannerConexion } from "../ui/BannerConexion";
 import { combinarClases } from "../ui/combinarClases";
-import { LogoOptiRuta } from "../ui/LogoOptiRuta";
 import { PanelVehiculo } from "../vehiculo/PanelVehiculo";
-import { ItemsNav, type Seccion } from "./NavSidebar";
+import {
+  IconoCuenta,
+  IconoHistorial,
+  IconoIncidencias,
+  IconoLugares,
+  IconoRuta,
+  IconoVehiculo,
+} from "./iconosNav";
+import type { GrupoNav } from "./NavSidebar";
+import { ShellEscritorio } from "./ShellEscritorio";
+
+type Seccion = "ruta" | "lugares" | "historial" | "vehiculo" | "incidencias" | "cuenta";
 
 const TITULOS: Record<Seccion, string> = {
   ruta: "Mis rutas",
@@ -40,9 +50,11 @@ interface Props {
   onLogout: () => void;
 }
 
+/** Escritorio de cualquier chofer. El independiente arma sus rutas y edita su vehículo;
+ * el de empresa ejecuta las rutas que le asignan y consulta lo demás. */
 export function EscritorioChofer({ usuario, onLogout }: Props) {
+  const esIndependiente = usuario.empresa_id === null;
   const [seccion, setSeccion] = useState<Seccion>("ruta");
-  const [menuAbierto, setMenuAbierto] = useState(false);
   const [accionPendiente, setAccionPendiente] = useState<AccionPendiente | undefined>(undefined);
   const [clientes, setClientes] = useState<ClientePublico[]>([]);
   const [incidencias, setIncidencias] = useState<IncidenciaPublica[]>([]);
@@ -146,245 +158,189 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
               ? usuario.email
               : undefined;
 
-  const estiloSidebar = {
-    backgroundColor: "#2A1264",
-    backgroundImage:
-      "radial-gradient(420px 260px at 0% 0%, rgba(124,58,237,0.55), transparent 70%), linear-gradient(180deg, #35197A 0%, #1E0C4C 100%)",
-  };
+  const grupos: GrupoNav<Seccion>[] = [
+    {
+      titulo: "Mi jornada",
+      items: [
+        {
+          id: "ruta",
+          etiqueta: "Mis rutas",
+          icono: <IconoRuta />,
+          badge: ruta ? String(ruta.paradas.length) : undefined,
+        },
+        ...(esIndependiente
+          ? [
+              {
+                id: "lugares" as const,
+                etiqueta: "Mis lugares",
+                icono: <IconoLugares />,
+                badge: clientes.length > 0 ? String(clientes.length) : undefined,
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      titulo: "Mi operación",
+      items: [
+        { id: "historial", etiqueta: "Historial de rutas", icono: <IconoHistorial /> },
+        { id: "vehiculo", etiqueta: "Mi vehículo", icono: <IconoVehiculo /> },
+        {
+          id: "incidencias",
+          etiqueta: "Incidencias",
+          icono: <IconoIncidencias />,
+          badge: incidenciasPendientes > 0 ? String(incidenciasPendientes) : undefined,
+        },
+      ],
+    },
+    { titulo: "Cuenta", items: [{ id: "cuenta", etiqueta: "Mi cuenta", icono: <IconoCuenta /> }] },
+  ];
 
   return (
-    <div className="flex h-dvh w-full flex-col lg:flex-row">
-      {/* SIDEBAR de escritorio: columna fija a la izquierda desde lg, con el
-          nav completo adentro. En mobile es solo la barra de marca — el
-          nav completo vive en el drawer de abajo, no acá (nada de scroll
-          horizontal). */}
-      <aside className="flex shrink-0 flex-col text-blanco lg:w-[232px]" style={estiloSidebar}>
-        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-white/12 px-4 lg:h-16 lg:px-5">
+    <ShellEscritorio
+      rol="Vista del chofer"
+      grupos={grupos}
+      seccion={seccion}
+      onSeleccionar={setSeccion}
+      titulo={TITULOS[seccion]}
+      subtitulo={
+        <>
+          {enCurso && seccion === "ruta" ? (
+            <div className="flex items-center gap-1.5 truncate text-[11.5px] font-semibold text-[#067647] lg:hidden">
+              <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-exito" />
+              En ruta{horaInicioEnCurso && ` · desde ${horaInicioEnCurso}`}
+            </div>
+          ) : (
+            subtitulo && <div className="truncate text-[11.5px] text-texto-mutado lg:hidden">{subtitulo}</div>
+          )}
+          {subtitulo && (
+            <div className="hidden truncate text-[11.5px] text-texto-mutado lg:block">{subtitulo}</div>
+          )}
+        </>
+      }
+      acciones={
+        <>
+          {enCurso && (
+            <div className="hidden items-center gap-2 rounded-pill border border-[#ABEFC6] bg-exito-tint px-3 py-1.5 lg:flex">
+              <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-exito" />
+              <span className="text-[11.5px] font-semibold text-[#067647]">
+                En ruta{horaInicioEnCurso && ` · desde ${horaInicioEnCurso}`}
+              </span>
+            </div>
+          )}
+
           <button
             type="button"
-            onClick={() => setMenuAbierto(true)}
-            aria-label="Abrir menú"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-blanco hover:bg-white/10 lg:hidden"
+            disabled={!enCurso || sinConexion}
+            title={
+              sinConexion
+                ? "Necesitás conexión para reportar una incidencia"
+                : enCurso
+                  ? undefined
+                  : "Iniciá tu ruta para reportar una incidencia"
+            }
+            onClick={() => setReportando(true)}
+            aria-label="Reportar incidencia"
+            className="flex h-[38px] w-[38px] items-center justify-center rounded-lg border border-borde-input bg-blanco text-[12.5px] font-semibold text-texto-cuerpo disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto lg:px-3.5"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="12" x2="21" y2="12" />
-              <line x1="3" y1="18" x2="21" y2="18" />
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lg:hidden">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
+            <span className="hidden lg:inline">Reportar incidencia</span>
           </button>
-          <LogoOptiRuta />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-extrabold tracking-tight text-blanco">OptiRuta</div>
-            <div className="hidden text-[9.5px] font-semibold tracking-[0.1em] text-white/60 uppercase lg:block">
-              Vista del chofer
-            </div>
-          </div>
-        </div>
 
-        <nav className="hidden min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-3 lg:flex">
-          <ItemsNav
-            seccion={seccion}
-            ruta={ruta}
-            clientes={clientes}
-            incidenciasPendientes={incidenciasPendientes}
-            onSeleccionar={setSeccion}
-          />
-        </nav>
-      </aside>
-
-      {/* Drawer del menú en mobile — el mismo nav de arriba, ahora vertical
-          y deslizable desde la izquierda, en vez de una tira horizontal
-          que había que scrollear. */}
-      {menuAbierto && (
-        <div
-          className="fixed inset-0 z-[900] animate-aparecer-fondo bg-[rgba(16,24,40,0.4)] lg:hidden"
-          onClick={() => setMenuAbierto(false)}
-        >
-          <aside
-            className="absolute top-0 left-0 flex h-full w-[min(280px,80vw)] animate-deslizar-panel-izq flex-col text-blanco"
-            style={estiloSidebar}
-            onClick={(e) => e.stopPropagation()}
+          <a
+            href={
+              paradaActual && origenNavegacion
+                ? construirUrlGoogleMaps(origenNavegacion, {
+                    latitud: paradaActual.latitud_snapshot,
+                    longitud: paradaActual.longitud_snapshot,
+                  })
+                : undefined
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled={!paradaActual}
+            aria-label="Abrir navegación"
+            className={combinarClases(
+              "flex h-[38px] items-center justify-center gap-1.5 rounded-lg bg-primario px-3 text-[12.5px] font-bold text-blanco shadow-boton-primario lg:px-4",
+              !paradaActual && "pointer-events-none opacity-50",
+            )}
           >
-            <div className="flex h-14 shrink-0 items-center justify-between gap-2.5 border-b border-white/12 px-4">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <LogoOptiRuta />
-                <span className="text-sm font-extrabold tracking-tight text-blanco">OptiRuta</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMenuAbierto(false)}
-                aria-label="Cerrar menú"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/80 hover:bg-white/10"
-              >
-                ✕
-              </button>
-            </div>
-            <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-3">
-              <ItemsNav
-                seccion={seccion}
-                ruta={ruta}
-                clientes={clientes}
-                incidenciasPendientes={incidenciasPendientes}
-                onSeleccionar={(s) => {
-                  setSeccion(s);
-                  setMenuAbierto(false);
-                }}
-              />
-            </nav>
-          </aside>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="3 11 22 2 13 21 11 13 3 11" />
+            </svg>
+            <span className="lg:hidden">Ir</span>
+            <span className="hidden lg:inline">Abrir navegación</span>
+          </a>
+        </>
+      }
+      banner={sinConexion && <BannerConexion copiaGuardadaEn={copiaGuardadaEn} />}
+    >
+      {seccion === "ruta" && (
+        <RutaDeHoyEscritorio
+          fecha={fecha}
+          rutas={rutas}
+          enCurso={enCurso}
+          onMoverDia={moverDia}
+          onIrAHoy={irAHoy}
+          onSeleccionarRuta={seleccionarRuta}
+          onIrARuta={irARuta}
+          ruta={ruta}
+          cargando={cargando}
+          enviando={enviando}
+          sinConexion={sinConexion}
+          gps={gps}
+          error={error}
+          ejecutar={ejecutar}
+          usuario={usuario}
+          clientePorId={clientePorId}
+          onIrAArmarRuta={irAArmarRuta}
+          onIrAHistorial={() => setSeccion("historial")}
+          onEditar={irAEditarRuta}
+          puedePlanificar={esIndependiente}
+        />
+      )}
+
+      {seccion === "lugares" && (
+        <div className="p-4 lg:p-6">
+          <PestanaLugares
+            onRutaConfirmada={manejarRutaConfirmada}
+            accionPendiente={accionPendiente}
+            onAccionPendienteConsumida={() => setAccionPendiente(undefined)}
+          />
         </div>
       )}
 
-      {/* MAIN */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* En el celular todo entra en un renglón (acciones como íconos) para dejarle
-            la pantalla al mapa durante la ruta; desde lg vuelven los botones con texto. */}
-        <header className="flex shrink-0 items-center gap-3 border-b border-borde bg-blanco px-4 py-2.5 lg:h-16 lg:gap-4 lg:px-6 lg:py-0">
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-base font-bold tracking-tight text-texto-fuerte">
-              {TITULOS[seccion]}
-            </div>
-            {enCurso && seccion === "ruta" ? (
-              <div className="flex items-center gap-1.5 truncate text-[11.5px] font-semibold text-[#067647] lg:hidden">
-                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-exito" />
-                En ruta{horaInicioEnCurso && ` · desde ${horaInicioEnCurso}`}
-              </div>
-            ) : (
-              subtitulo && <div className="truncate text-[11.5px] text-texto-mutado lg:hidden">{subtitulo}</div>
-            )}
-            {subtitulo && (
-              <div className="hidden truncate text-[11.5px] text-texto-mutado lg:block">{subtitulo}</div>
-            )}
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {enCurso && (
-              <div className="hidden items-center gap-2 rounded-pill border border-[#ABEFC6] bg-exito-tint px-3 py-1.5 lg:flex">
-                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-exito" />
-                <span className="text-[11.5px] font-semibold text-[#067647]">
-                  En ruta{horaInicioEnCurso && ` · desde ${horaInicioEnCurso}`}
-                </span>
-              </div>
-            )}
-
-            <button
-              type="button"
-              disabled={!enCurso || sinConexion}
-              title={
-                sinConexion
-                  ? "Necesitás conexión para reportar una incidencia"
-                  : enCurso
-                    ? undefined
-                    : "Iniciá tu ruta para reportar una incidencia"
-              }
-              onClick={() => setReportando(true)}
-              aria-label="Reportar incidencia"
-              className="flex h-[38px] w-[38px] items-center justify-center rounded-lg border border-borde-input bg-blanco text-[12.5px] font-semibold text-texto-cuerpo disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto lg:px-3.5"
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lg:hidden">
-                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-              <span className="hidden lg:inline">Reportar incidencia</span>
-            </button>
-
-            <a
-              href={
-                paradaActual && origenNavegacion
-                  ? construirUrlGoogleMaps(origenNavegacion, {
-                      latitud: paradaActual.latitud_snapshot,
-                      longitud: paradaActual.longitud_snapshot,
-                    })
-                  : undefined
-              }
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-disabled={!paradaActual}
-              aria-label="Abrir navegación"
-              className={combinarClases(
-                "flex h-[38px] items-center justify-center gap-1.5 rounded-lg bg-primario px-3 text-[12.5px] font-bold text-blanco shadow-boton-primario lg:px-4",
-                !paradaActual && "pointer-events-none opacity-50",
-              )}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="3 11 22 2 13 21 11 13 3 11" />
-              </svg>
-              <span className="lg:hidden">Ir</span>
-              <span className="hidden lg:inline">Abrir navegación</span>
-            </a>
-          </div>
-        </header>
-
-        {sinConexion && <BannerConexion copiaGuardadaEn={copiaGuardadaEn} />}
-
-        <div
-          className="min-h-0 flex-1 overflow-y-auto"
-          style={{
-            backgroundColor: "#EEEDF6",
-            backgroundImage:
-              "radial-gradient(900px 480px at 8% 0%, rgba(124,58,237,0.10), transparent 62%), radial-gradient(700px 420px at 96% 100%, rgba(15,118,110,0.07), transparent 60%), linear-gradient(160deg, #F7F6FC 0%, #EAEAF3 100%)",
-          }}
-        >
-          {seccion === "ruta" && (
-            <RutaDeHoyEscritorio
-              fecha={fecha}
-              rutas={rutas}
-              enCurso={enCurso}
-              onMoverDia={moverDia}
-              onIrAHoy={irAHoy}
-              onSeleccionarRuta={seleccionarRuta}
-              onIrARuta={irARuta}
-              ruta={ruta}
-              cargando={cargando}
-              enviando={enviando}
-              sinConexion={sinConexion}
-              gps={gps}
-              error={error}
-              ejecutar={ejecutar}
-              usuario={usuario}
-              clientePorId={clientePorId}
-              onIrAArmarRuta={irAArmarRuta}
-              onIrAHistorial={() => setSeccion("historial")}
-              onEditar={irAEditarRuta}
-            />
-          )}
-
-          {seccion === "lugares" && (
-            <div className="p-4 lg:p-6">
-              <PestanaLugares
-                onRutaConfirmada={manejarRutaConfirmada}
-                accionPendiente={accionPendiente}
-                onAccionPendienteConsumida={() => setAccionPendiente(undefined)}
-              />
-            </div>
-          )}
-
-          {seccion === "historial" && (
-            <div className="p-4 lg:p-6">
-              <PanelHistorial clientes={clientes} onUsarDeNuevo={usarRutaDeNuevo} />
-            </div>
-          )}
-
-          {seccion === "vehiculo" && (
-            <div className="p-4 lg:p-6">
-              <PanelVehiculo usuario={usuario} ruta={enCurso} />
-            </div>
-          )}
-
-          {seccion === "incidencias" && (
-            <div className="p-4 lg:p-6">
-              <PanelIncidencias
-                incidencias={incidencias}
-                sinConexion={sinConexion}
-                onActualizar={recargarIncidencias}
-              />
-            </div>
-          )}
-
-          {seccion === "cuenta" && <PanelCuenta usuario={usuario} onCerrarSesion={onLogout} />}
+      {seccion === "historial" && (
+        <div className="p-4 lg:p-6">
+          <PanelHistorial
+            clientes={clientes}
+            onUsarDeNuevo={esIndependiente ? usarRutaDeNuevo : undefined}
+          />
         </div>
-      </div>
+      )}
+
+      {seccion === "vehiculo" && (
+        <div className="p-4 lg:p-6">
+          <PanelVehiculo usuario={usuario} ruta={enCurso} editable={esIndependiente} />
+        </div>
+      )}
+
+      {seccion === "incidencias" && (
+        <div className="p-4 lg:p-6">
+          <PanelIncidencias
+            incidencias={incidencias}
+            sinConexion={sinConexion}
+            onActualizar={recargarIncidencias}
+            alcance={esIndependiente ? "propias" : "deEmpresa"}
+          />
+        </div>
+      )}
+
+      {seccion === "cuenta" && <PanelCuenta usuario={usuario} onCerrarSesion={onLogout} />}
 
       {reportando && enCurso && (
         <div
@@ -404,6 +360,6 @@ export function EscritorioChofer({ usuario, onLogout }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </ShellEscritorio>
   );
 }

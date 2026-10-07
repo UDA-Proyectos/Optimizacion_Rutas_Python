@@ -100,7 +100,9 @@ def test_optimizar_con_cliente_ajeno_da_400(client, osrm_falso):
     assert respuesta.status_code == 400
 
 
-def test_chofer_de_empresa_no_puede_optimizar(client):
+def test_admin_tiene_que_elegir_el_chofer_al_optimizar(client):
+    """El admin planifica para un chofer de su flota (ver test_flota.py): sin decir para
+    quién, el pedido no es válido. (El chofer de empresa no planifica: 403, ídem.)"""
     respuesta_empresa = client.post(
         "/api/v1/auth/registro/empresa",
         json={
@@ -121,7 +123,7 @@ def test_chofer_de_empresa_no_puede_optimizar(client):
             ]
         },
     )
-    assert respuesta.status_code == 403
+    assert respuesta.status_code == 422
 
 
 def test_ruta_activa_sin_ruta_devuelve_null(client):

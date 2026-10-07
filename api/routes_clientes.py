@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from api import schemas_clientes as schemas
-from api.dependencies import get_db, obtener_usuario_actual
+from api.dependencies import get_db, obtener_usuario_actual, requiere_planificador
 from api.schemas_auth import MensajeResponse
 from db import crud
 from db.modelos import Cliente, Usuario
@@ -23,7 +23,7 @@ def _obtener_cliente_propio(db: Session, cliente_id: uuid.UUID, usuario: Usuario
 def crear_cliente(
     datos: schemas.ClienteCrear,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario: Usuario = Depends(requiere_planificador),
 ):
     return crud.crear_cliente(db, datos, usuario.ambito_dueño)
 
@@ -40,7 +40,7 @@ def actualizar_cliente(
     cliente_id: uuid.UUID,
     datos: schemas.ClienteActualizar,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario: Usuario = Depends(requiere_planificador),
 ):
     cliente = _obtener_cliente_propio(db, cliente_id, usuario)
     return crud.actualizar_cliente(db, cliente, datos.model_dump(exclude_unset=True))
@@ -50,7 +50,7 @@ def actualizar_cliente(
 def eliminar_cliente(
     cliente_id: uuid.UUID,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario: Usuario = Depends(requiere_planificador),
 ):
     cliente = _obtener_cliente_propio(db, cliente_id, usuario)
     crud.eliminar_cliente(db, cliente)

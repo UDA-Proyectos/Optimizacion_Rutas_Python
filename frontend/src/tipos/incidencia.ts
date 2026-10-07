@@ -11,6 +11,8 @@ export interface IncidenciaPublica {
   fecha_hora: string;
   ruta_id: string;
   ruta_fecha: string;
+  /** Chofer de la ruta: el admin ve las incidencias de toda la flota. */
+  chofer_nombre: string;
   parada_id: string | null;
   parada_nombre: string | null;
   estado: EstadoIncidencia;

@@ -5,6 +5,7 @@ from typing import NamedTuple
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
@@ -394,6 +395,10 @@ class Ruta(Base):
     def incidencias_total(self) -> int:
         return len(self.incidencias)
 
+    @property
+    def chofer_nombre(self) -> str:
+        return self.chofer.nombre_completo
+
 
 class ParadaRuta(Base):
     __tablename__ = "paradas_ruta"
@@ -516,20 +521,22 @@ class Incidencia(Base):
     reportado_por: Mapped["Usuario"] = relationship(foreign_keys=[reportado_por_usuario_id])
 
 
-class EntregaPendiente(Base):
-    """Entrega no realizada que el chofer reprogramó para su próxima ruta.
+class EntregaPendiente(DuenioMixin, Base):
+    """Entrega no realizada que quedó reprogramada para una próxima ruta.
 
     Es un compromiso a futuro con ciclo de vida propio (pendiente -> incluida),
     separado de la ParadaRuta de origen, que es el historial de ese día y no se
-    modifica. Guarda un snapshot de lo que había que entregar."""
+    modifica. Guarda un snapshot de lo que había que entregar. Su dueño es el
+    chofer independiente o, en una empresa, la empresa: cualquier chofer de la
+    flota puede terminar haciéndola."""
 
     __tablename__ = "entregas_pendientes"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(empresa_id, usuario_id) = 1", name="un_solo_duenio"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    usuario_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("usuarios.id"), nullable=False
-    )
     cliente_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("clientes.id"), nullable=False
     )

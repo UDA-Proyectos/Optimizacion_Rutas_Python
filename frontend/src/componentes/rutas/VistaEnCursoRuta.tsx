@@ -6,7 +6,7 @@ import {
   registrarLlegada,
   saltearParada,
 } from "../../api/rutas";
-import type { EjecutarAccionRuta } from "../../hooks/useRutaActiva";
+import type { EjecutarAccionRuta } from "../../hooks/useRutasDelDia";
 import type { EstadoGps } from "../../hooks/useUbicacion";
 import type { UsuarioPublico } from "../../tipos/auth";
 import type { ClientePublico } from "../../tipos/cliente";
@@ -103,13 +103,16 @@ function BotonUbicacion({ gps }: { gps: EstadoGps }) {
 const TITULO_SECCION =
   "text-[9.5px] font-bold tracking-[0.12em] text-texto-mutado uppercase";
 
-/** Dos pasos: el motivo del fallo y, con el motivo elegido, qué hacer con la entrega. */
+/** Dos pasos: el motivo del fallo y, con el motivo elegido, qué hacer con la entrega
+ * (el chofer de empresa solo confirma: la decisión es de su empresa). */
 function SelectorFallo({
   bloqueado,
   onFallar,
+  puedeReprogramar,
 }: {
   bloqueado: boolean;
   onFallar: (motivo: MotivoFalloParada, reprogramar: boolean) => void;
+  puedeReprogramar: boolean;
 }) {
   const [motivoElegido, setMotivoElegido] = useState<MotivoFalloParada | null>(
     null,
@@ -134,6 +137,37 @@ function SelectorFallo({
             </button>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (!puedeReprogramar) {
+    return (
+      <div className="mt-2.5">
+        <div className={combinarClases("mb-1.5", TITULO_SECCION)}>
+          {ETIQUETA_MOTIVO[motivoElegido]}
+        </div>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            disabled={bloqueado}
+            onClick={() => onFallar(motivoElegido, false)}
+            className="h-9 flex-1 rounded-lg bg-primario px-3 text-[12px] font-bold text-blanco disabled:opacity-60"
+          >
+            Confirmar
+          </button>
+          <button
+            type="button"
+            disabled={bloqueado}
+            onClick={() => setMotivoElegido(null)}
+            className="h-9 rounded-lg px-3 text-[12px] font-semibold text-texto-mutado disabled:opacity-60"
+          >
+            Volver
+          </button>
+        </div>
+        <p className="mt-1.5 text-[10.5px] text-texto-mutado">
+          Tu empresa decide si la entrega se reprograma.
+        </p>
       </div>
     );
   }
@@ -196,6 +230,7 @@ function OverlayParadaActual({
   onSaltear,
   puedeSaltear,
   clienteActual,
+  puedeReprogramar,
 }: {
   paradaActual: ParadaRutaPublica;
   indiceActual: number;
@@ -210,6 +245,7 @@ function OverlayParadaActual({
   onSaltear: () => void;
   puedeSaltear: boolean;
   clienteActual: ClientePublico | undefined;
+  puedeReprogramar: boolean;
 }) {
   // Estado puramente visual (el selector abierto/cerrado). Se reinicia solo al
   // cambiar de parada porque el padre monta este componente con `key`.
@@ -316,7 +352,11 @@ function OverlayParadaActual({
           </div>
 
           {eligiendoMotivo && (
-            <SelectorFallo bloqueado={bloqueado} onFallar={onFallar} />
+            <SelectorFallo
+              bloqueado={bloqueado}
+              onFallar={onFallar}
+              puedeReprogramar={puedeReprogramar}
+            />
           )}
         </div>
 
@@ -377,6 +417,7 @@ export function VistaEnCursoRuta({
   ejecutar,
   usuario,
   clientePorId,
+  puedeReprogramar,
 }: {
   ruta: RutaPublica;
   enviando: boolean;
@@ -386,6 +427,8 @@ export function VistaEnCursoRuta({
   ejecutar: EjecutarAccionRuta;
   usuario: UsuarioPublico;
   clientePorId: Map<string, ClientePublico>;
+  /** El chofer de empresa informa el fallo; reprogramar lo decide su empresa. */
+  puedeReprogramar: boolean;
 }) {
   const paradas = ruta.paradas;
   const completadas = paradas.filter((p) => p.estado === "completada");
@@ -394,8 +437,8 @@ export function VistaEnCursoRuta({
   const indiceActual = paradas.findIndex((p) => p.estado === "en_curso");
   const paradaActual = indiceActual === -1 ? undefined : paradas[indiceActual];
 
-  // Solo un chofer independiente con vehículo llega hasta acá (necesita uno
-  // para poder confirmar cualquier ruta, ver requiere_chofer_independiente).
+  // Solo un chofer con vehículo llega hasta acá: hace falta uno para planificar
+  // cualquier ruta, propia o asignada (ver routing/planificador.py).
   const vehiculo = usuario.vehiculo!;
 
   const kgTotal = paradas.reduce((a, p) => a + p.demanda_carga_snapshot, 0);
@@ -546,6 +589,7 @@ export function VistaEnCursoRuta({
                 onSaltear={manejarSaltear}
                 puedeSaltear={puedeSaltear}
                 clienteActual={clienteActual}
+                puedeReprogramar={puedeReprogramar}
               />
             )}
           </MapaRutaActiva>

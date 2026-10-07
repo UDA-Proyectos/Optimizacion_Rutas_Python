@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from api import schemas_entregas_pendientes as schemas
-from api.dependencies import get_db, requiere_chofer_independiente
+from api.dependencies import get_db, requiere_planificador
 from db import crud
 from db.modelos import Usuario
 
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/v1/entregas-pendientes", tags=["Entregas pendien
 
 @router.get("", response_model=list[schemas.EntregaPendientePublica])
 def listar_entregas_pendientes(
-    db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_chofer_independiente)
+    db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_planificador)
 ):
     return [
         schemas.EntregaPendientePublica(
@@ -26,5 +26,5 @@ def listar_entregas_pendientes(
             fecha_creacion=entrega.fecha_creacion,
             fecha_origen=entrega.parada_origen.ruta.fecha,
         )
-        for entrega in crud.listar_entregas_pendientes(db, usuario.id)
+        for entrega in crud.listar_entregas_pendientes(db, usuario.ambito_dueño)
     ]

@@ -4,8 +4,13 @@ import { obtenerRutaActiva, obtenerRutasDelDia } from "../api/rutas";
 import type { RutaPublica } from "../tipos/ruta";
 import { guardarRutasCache, leerRutasCache } from "../utilidades/almacenRuta";
 import { hoyLocal, sumarDias } from "../utilidades/fechas";
-import type { EjecutarAccionRuta } from "./useRutaActiva";
 import { useEnLinea } from "./useEnLinea";
+
+/** Firma de `ejecutar` — la reciben por prop RutaDeHoyEscritorio y VistaEnCursoRuta. */
+export type EjecutarAccionRuta = (
+  accion: () => Promise<RutaPublica | void>,
+  mensajeError: string,
+) => Promise<void>;
 
 const MENSAJE_SIN_CONEXION = "Necesitás conexión para hacer esto. Se habilita cuando vuelva la señal.";
 const REINTENTO_SIN_CONEXION_MS = 10_000;
